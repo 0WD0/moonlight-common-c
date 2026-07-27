@@ -49,3 +49,26 @@ add_test(
   NAME moonlight-protocol-v1.wire.native
   COMMAND test_moonlight_protocol_v1_wire
 )
+
+add_executable(test_moonlight_protocol_v1_control test_control.c)
+
+set_target_properties(
+  test_moonlight_protocol_v1_control
+  PROPERTIES
+    C_EXTENSIONS OFF
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+)
+
+target_link_libraries(
+  test_moonlight_protocol_v1_control
+  PRIVATE
+    moonlight::protocol-v1
+)
+
+moonlight_protocol_v1_apply_warnings(test_moonlight_protocol_v1_control)
+
+add_test(
+  NAME moonlight-protocol-v1.control.native
+  COMMAND test_moonlight_protocol_v1_control
+)

@@ -3,6 +3,7 @@
  * @brief LibFuzzer entry point for protocol version 1 reliable framing.
  */
 
+#include <moonlight/protocol/control.h>
 #include <moonlight/protocol/wire.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -284,7 +285,57 @@ static void fuzz_canonical_roundtrip(const uint8_t *data, size_t size) {
 }
 
 /**
- * @brief Fuzzes fixed headers, streaming framing, and canonical round trips.
+ * @brief Exercises strict CLIENT_HELLO schema decoders and canonical re-encoding.
+ *
+ * @param data Arbitrary payload bytes.
+ * @param size Number of readable bytes.
+ */
+static void fuzz_control_schema(const uint8_t *data, size_t size) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_CLIENT_HELLO_REQUEST_PAYLOAD_MAX];
+  MoonlightProtocolV1ClientHelloRequest request;
+  MoonlightProtocolV1ClientHelloResponse response;
+  MoonlightProtocolResult result;
+  size_t encoded_size = 0;
+
+  result = MoonlightProtocolV1DecodeClientHelloRequest(
+    data,
+    size,
+    &request
+  );
+  if (result == MOONLIGHT_PROTOCOL_RESULT_OK) {
+    require_invariant(
+      MoonlightProtocolV1EncodeClientHelloRequest(
+        &request,
+        encoded,
+        sizeof(encoded),
+        &encoded_size
+      ) == MOONLIGHT_PROTOCOL_RESULT_OK
+    );
+    require_invariant(encoded_size == size);
+    require_invariant(memcmp(encoded, data, size) == 0);
+  }
+
+  result = MoonlightProtocolV1DecodeClientHelloResponse(
+    data,
+    size,
+    &response
+  );
+  if (result == MOONLIGHT_PROTOCOL_RESULT_OK) {
+    require_invariant(
+      MoonlightProtocolV1EncodeClientHelloResponse(
+        &response,
+        encoded,
+        sizeof(encoded),
+        &encoded_size
+      ) == MOONLIGHT_PROTOCOL_RESULT_OK
+    );
+    require_invariant(encoded_size == size);
+    require_invariant(memcmp(encoded, data, size) == 0);
+  }
+}
+
+/**
+ * @brief Fuzzes fixed headers, streaming framing, schemas, and canonical round trips.
  *
  * @param data Arbitrary fuzzer-owned bytes.
  * @param size Number of readable bytes in `data`.
@@ -348,5 +399,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   fuzz_stream_parser(data, size);
   fuzz_tlv_parser(data, size);
   fuzz_canonical_roundtrip(data, size);
+  fuzz_control_schema(data, size);
   return 0;
 }

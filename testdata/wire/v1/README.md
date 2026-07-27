@@ -12,7 +12,7 @@ representation.
 | `audio-data.hex` | DATAGRAM | 52 | `27d871c6068a816024a923373f84399ad5517075d550cf91bbecd0548d67b1b3` |
 | `audio-parity.hex` | DATAGRAM | 52 | `c7d7d64ad1703f7511f503f6a74c4e744571ff99962f341a1a8e69b83246e4fd` |
 | `control-coalesced.hex` | initiating stream half | 73 | `07fa4b2cfa8673eb57e2345936107dcae2c177f05cc6a6b10253a90d1bde30fd` |
-| `control-early-hello-max.hex` | initiating stream half | 138 | `4ac83309784a41183a18b57c227379bc32249a9432882fa1bed2d51e0811256b` |
+| `control-early-hello-max.hex` | initiating stream half | 138 | `8d767889a177ba2514683fcd7a4c0e8dcac08bcfe8d24b05b0db21c581f5f56e` |
 | `goaway-notification.hex` | envelope and payload | 48 | `c87ac84c6f08b18c2386cc63987af9537201f793793d7ce768d7338bb2130e78` |
 | `ping-success-response.hex` | envelope and payload | 35 | `cf325e5eb19d9daab5c2011e97762bb9ad86bde75713da712fa70bcee0bb9eaf` |
 | `rate-limited-error-response.hex` | envelope and payload | 48 | `ac964da8fe2359f7b813d88ca022ec2abe0661ce020c98ad93d42cb07b9833e2` |
