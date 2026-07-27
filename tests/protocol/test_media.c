@@ -2535,6 +2535,11 @@ static bool test_received_datagram_disposition(void) {
   );
   TEST_CHECK(
     MoonlightProtocolV1ClassifyReceivedDatagramResult(
+      MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+    ) == MOONLIGHT_PROTOCOL_V1_DATAGRAM_DISPOSITION_PROTOCOL_VIOLATION
+  );
+  TEST_CHECK(
+    MoonlightProtocolV1ClassifyReceivedDatagramResult(
       (MoonlightProtocolResult) -1
     ) == MOONLIGHT_PROTOCOL_V1_DATAGRAM_DISPOSITION_LOCAL_ERROR
   );
