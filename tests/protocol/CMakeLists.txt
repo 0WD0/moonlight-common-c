@@ -73,6 +73,35 @@ add_test(
   COMMAND test_moonlight_protocol_v1_control
 )
 
+add_executable(test_moonlight_protocol_v1_host_info test_host_info.c)
+
+set_target_properties(
+  test_moonlight_protocol_v1_host_info
+  PROPERTIES
+    C_EXTENSIONS OFF
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+)
+
+target_link_libraries(
+  test_moonlight_protocol_v1_host_info
+  PRIVATE
+    moonlight::protocol-v1
+)
+
+target_compile_definitions(
+  test_moonlight_protocol_v1_host_info
+  PRIVATE
+    MOONLIGHT_PROTOCOL_V1_TESTDATA_DIR="${MOONLIGHT_PROTOCOL_V1_TESTDATA_DIR}"
+)
+
+moonlight_protocol_v1_apply_warnings(test_moonlight_protocol_v1_host_info)
+
+add_test(
+  NAME moonlight-protocol-v1.host-info.native
+  COMMAND test_moonlight_protocol_v1_host_info
+)
+
 add_executable(test_moonlight_protocol_v1_client_proof test_client_proof.c)
 
 set_target_properties(

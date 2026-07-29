@@ -14,6 +14,7 @@ representation.
 | `control-coalesced.hex` | initiating stream half | 73 | `07fa4b2cfa8673eb57e2345936107dcae2c177f05cc6a6b10253a90d1bde30fd` |
 | `control-early-hello-max.hex` | initiating stream half | 138 | `8d767889a177ba2514683fcd7a4c0e8dcac08bcfe8d24b05b0db21c581f5f56e` |
 | `goaway-notification.hex` | envelope and payload | 48 | `c87ac84c6f08b18c2386cc63987af9537201f793793d7ce768d7338bb2130e78` |
+| `host-info-success-response.hex` | envelope and payload | 177 | `e765fc6abb95bdd43253aa3220664f82da64d09ef080d1775bf9dada4f00af59` |
 | `pair-request-max.hex` | envelope and payload | 184 | `a9d6cadd6e4b24094963efab6124d78a1478cbb253f8a1c368cc9c4d9b9f2e3d` |
 | `pairing-proof-transcript.hex` | Client Proof signature transcript | 190 | `8560db7ba379d25e7226e816ae9ac254596f680a0c225dcde664162a59905ca2` |
 | `ping-success-response.hex` | envelope and payload | 35 | `cf325e5eb19d9daab5c2011e97762bb9ad86bde75713da712fa70bcee0bb9eaf` |
@@ -34,6 +35,12 @@ data coding shard.
 preface, a `CLIENT_HELLO` request envelope, and 98 bytes of canonical TLVs.
 The reverse direction of a bidirectional lane never repeats the preface;
 response and notification artifacts therefore begin directly with `SQM1`.
+
+`host-info-success-response.hex` uses post-READY correlation
+`0x0102030405060708`, Host ID `00..0f`, display name `Sunshine 🌞`,
+software version `2026.7.30`, QUIC port 47989, every defined Host capability
+and ACL bit, eight maximum and three available Stream Session slots,
+authorization generation `0x1112131415161718`, and shared visibility.
 
 `pairing-proof-transcript.hex` uses proof format 1, exporter bytes `00..1f`,
 Host ID `20..2f`, Host Identity `30..4f`, P-256 scheme 1, Credential digest

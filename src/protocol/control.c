@@ -25,6 +25,11 @@
 #define CLIENT_HELLO_RESPONSE_FIELD_COUNT 5u
 
 /**
+ * @brief Number of required fields in a successful GET_HOST_INFO response.
+ */
+#define HOST_INFO_RESPONSE_FIELD_COUNT 10u
+
+/**
  * @brief Stores one network-order 16-bit integer.
  *
  * @param output Two writable bytes.
@@ -98,7 +103,7 @@ static uint64_t control_load_u64(const uint8_t *input) {
  *
  * @param input Candidate UTF-8 bytes.
  * @param input_size Number of candidate bytes.
- * @return True only for canonical UTF-8 without surrogate code points.
+ * @return True only for canonical UTF-8 without NUL or surrogate code points.
  */
 static bool control_utf8_is_valid(
   const uint8_t *input,
@@ -155,6 +160,26 @@ static bool control_utf8_is_valid(
 }
 
 /**
+ * @brief Tests whether a fixed identifier contains at least one nonzero byte.
+ *
+ * @param input Candidate identifier bytes.
+ * @param input_size Number of bytes to inspect.
+ * @return True when the identifier is not the reserved all-zero value.
+ */
+static bool control_identifier_is_nonzero(
+  const uint8_t *input,
+  size_t input_size
+) {
+  size_t index;
+  uint8_t combined = 0;
+
+  for (index = 0; index < input_size; ++index) {
+    combined |= input[index];
+  }
+  return combined != 0;
+}
+
+/**
  * @brief Validates one CLIENT_HELLO request.
  *
  * @param request Candidate request.
@@ -194,6 +219,86 @@ static MoonlightProtocolResult validate_client_hello_response(
     return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
   }
   return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+/**
+ * @brief Validates one successful GET_HOST_INFO response.
+ *
+ * @param response Candidate response.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult validate_host_info_response(
+  const MoonlightProtocolV1HostInfoResponse *response
+) {
+  uint64_t unknown_bits;
+
+  if (response == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  unknown_bits =
+    response->capability_bits &
+    (uint64_t) ~MOONLIGHT_PROTOCOL_V1_CAPABILITY_MASK;
+  if (unknown_bits != 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH;
+  }
+  if (!control_identifier_is_nonzero(
+        response->host_id,
+        sizeof(response->host_id)
+      )) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (response->display_name_size == 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (response->display_name_size > MOONLIGHT_PROTOCOL_V1_HOST_DISPLAY_NAME_MAX) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (!control_utf8_is_valid(
+        response->display_name,
+        response->display_name_size
+      )) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (response->software_version_size == 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (response->software_version_size > MOONLIGHT_PROTOCOL_V1_SOFTWARE_VERSION_MAX) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (!control_utf8_is_valid(
+        response->software_version,
+        response->software_version_size
+      )) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (response->configured_quic_port == 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (response->maximum_active_stream_sessions == 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (response->maximum_active_stream_sessions > MOONLIGHT_PROTOCOL_V1_ACTIVE_STREAM_SESSION_MAX) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (response->available_stream_session_slots > response->maximum_active_stream_sessions) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  unknown_bits =
+    response->acl_permission_bits &
+    (uint64_t) ~MOONLIGHT_PROTOCOL_V1_ACL_PERMISSION_MASK;
+  if (unknown_bits != 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (response->authorization_generation == 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  switch (response->instance_visibility) {
+    case MOONLIGHT_PROTOCOL_V1_INSTANCE_VISIBILITY_OWNER_ONLY:
+    case MOONLIGHT_PROTOCOL_V1_INSTANCE_VISIBILITY_SHARED:
+      return MOONLIGHT_PROTOCOL_RESULT_OK;
+    default:
+      return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
 }
 
 /**
@@ -296,6 +401,9 @@ static MoonlightProtocolResult decode_expected_scalar(
     remaining,
     &field
   );
+  if (result == MOONLIGHT_PROTOCOL_RESULT_TRUNCATED) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
     return result;
   }
@@ -662,5 +770,217 @@ MoonlightProtocolResult MoonlightProtocolV1DecodePingPayload(
   memcpy(decoded.token, value, value_size);
   decoded.token_size = value_size;
   *payload = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1EncodeHostInfoResponse(
+  const MoonlightProtocolV1HostInfoResponse *response,
+  uint8_t *output,
+  size_t output_size,
+  size_t *encoded_size
+) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_HOST_INFO_RESPONSE_PAYLOAD_MAX];
+  uint8_t configured_quic_port[2];
+  uint8_t capability_bits[8];
+  uint8_t maximum_active_stream_sessions[4];
+  uint8_t available_stream_session_slots[4];
+  uint8_t acl_permission_bits[8];
+  uint8_t authorization_generation[8];
+  uint8_t instance_visibility;
+  MoonlightProtocolResult result;
+  size_t size = 0;
+
+  if (output == NULL || encoded_size == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = validate_host_info_response(response);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  control_store_u16(
+    configured_quic_port,
+    response->configured_quic_port
+  );
+  control_store_u64(capability_bits, response->capability_bits);
+  control_store_u32(
+    maximum_active_stream_sessions,
+    response->maximum_active_stream_sessions
+  );
+  control_store_u32(
+    available_stream_session_slots,
+    response->available_stream_session_slots
+  );
+  control_store_u64(acl_permission_bits, response->acl_permission_bits);
+  control_store_u64(
+    authorization_generation,
+    response->authorization_generation
+  );
+  instance_visibility = (uint8_t) response->instance_visibility;
+
+  size += encode_scalar(
+    encoded + size,
+    1,
+    response->host_id,
+    sizeof(response->host_id)
+  );
+  size += encode_scalar(
+    encoded + size,
+    2,
+    response->display_name,
+    response->display_name_size
+  );
+  size += encode_scalar(
+    encoded + size,
+    3,
+    response->software_version,
+    response->software_version_size
+  );
+  size += encode_scalar(
+    encoded + size,
+    4,
+    configured_quic_port,
+    sizeof(configured_quic_port)
+  );
+  size += encode_scalar(
+    encoded + size,
+    5,
+    capability_bits,
+    sizeof(capability_bits)
+  );
+  size += encode_scalar(
+    encoded + size,
+    6,
+    maximum_active_stream_sessions,
+    sizeof(maximum_active_stream_sessions)
+  );
+  size += encode_scalar(
+    encoded + size,
+    7,
+    available_stream_session_slots,
+    sizeof(available_stream_session_slots)
+  );
+  size += encode_scalar(
+    encoded + size,
+    8,
+    acl_permission_bits,
+    sizeof(acl_permission_bits)
+  );
+  size += encode_scalar(
+    encoded + size,
+    9,
+    authorization_generation,
+    sizeof(authorization_generation)
+  );
+  size += encode_scalar(
+    encoded + size,
+    10,
+    &instance_visibility,
+    sizeof(instance_visibility)
+  );
+  if (output_size < size) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodeHostInfoResponse(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1HostInfoResponse *response
+) {
+  MoonlightProtocolV1HostInfoResponse decoded;
+  const uint8_t *values[HOST_INFO_RESPONSE_FIELD_COUNT];
+  size_t value_sizes[HOST_INFO_RESPONSE_FIELD_COUNT];
+  static const size_t minimum_sizes[HOST_INFO_RESPONSE_FIELD_COUNT] = {
+    MOONLIGHT_PROTOCOL_V1_UUID_SIZE,
+    1u,
+    1u,
+    2u,
+    8u,
+    4u,
+    4u,
+    8u,
+    8u,
+    1u,
+  };
+  static const size_t maximum_sizes[HOST_INFO_RESPONSE_FIELD_COUNT] = {
+    MOONLIGHT_PROTOCOL_V1_UUID_SIZE,
+    MOONLIGHT_PROTOCOL_V1_HOST_DISPLAY_NAME_MAX,
+    MOONLIGHT_PROTOCOL_V1_SOFTWARE_VERSION_MAX,
+    2u,
+    8u,
+    4u,
+    4u,
+    8u,
+    8u,
+    1u,
+  };
+  size_t offset = 0;
+  size_t field_index;
+  MoonlightProtocolResult result;
+
+  if (input == NULL || response == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (input_size > MOONLIGHT_PROTOCOL_V1_HOST_INFO_RESPONSE_PAYLOAD_MAX) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (input_size < MOONLIGHT_PROTOCOL_V1_HOST_INFO_RESPONSE_PAYLOAD_MIN) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  for (
+    field_index = 0;
+    field_index < HOST_INFO_RESPONSE_FIELD_COUNT;
+    ++field_index) {
+    result = decode_expected_scalar(
+      input,
+      input_size,
+      &offset,
+      (uint16_t) (field_index + 1u),
+      HOST_INFO_RESPONSE_FIELD_COUNT,
+      &values[field_index],
+      &value_sizes[field_index]
+    );
+    if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+      return result;
+    }
+    if (value_sizes[field_index] < minimum_sizes[field_index] || value_sizes[field_index] > maximum_sizes[field_index]) {
+      return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+    }
+  }
+  result = classify_trailing_field(
+    input,
+    input_size,
+    offset,
+    HOST_INFO_RESPONSE_FIELD_COUNT
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  memcpy(decoded.host_id, values[0], sizeof(decoded.host_id));
+  memcpy(decoded.display_name, values[1], value_sizes[1]);
+  decoded.display_name_size = value_sizes[1];
+  memcpy(decoded.software_version, values[2], value_sizes[2]);
+  decoded.software_version_size = value_sizes[2];
+  decoded.configured_quic_port = control_load_u16(values[3]);
+  decoded.capability_bits = control_load_u64(values[4]);
+  decoded.maximum_active_stream_sessions = control_load_u32(values[5]);
+  decoded.available_stream_session_slots = control_load_u32(values[6]);
+  decoded.acl_permission_bits = control_load_u64(values[7]);
+  decoded.authorization_generation = control_load_u64(values[8]);
+  decoded.instance_visibility =
+    (MoonlightProtocolV1InstanceVisibility) values[9][0];
+
+  result = validate_host_info_response(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  *response = decoded;
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
