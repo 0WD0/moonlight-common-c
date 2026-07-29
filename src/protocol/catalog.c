@@ -21,6 +21,24 @@
 #define APPLICATION_RECORD_FIELD_MAX 3u
 
 /**
+ * @brief Reliably clears temporary catalog storage.
+ *
+ * Volatile byte stores prevent the compiler from removing the wipe after the
+ * final non-volatile use of an opaque continuation cursor.
+ *
+ * @param data Writable storage to clear.
+ * @param data_size Number of bytes to clear.
+ */
+static void catalog_secure_clear(void *data, size_t data_size) {
+  volatile uint8_t *cursor = (volatile uint8_t *) data;
+
+  while (data_size != 0) {
+    *cursor++ = 0;
+    --data_size;
+  }
+}
+
+/**
  * @brief Stores one network-order 16-bit integer.
  *
  * @param output Two writable bytes.
@@ -545,16 +563,23 @@ MoonlightProtocolResult MoonlightProtocolV1EncodeGetAppListRequest(
     );
   }
   if (size != 0 && output == NULL) {
-    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+    result = MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+    goto cleanup;
   }
   if (output_size < size) {
-    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+    result = MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+    goto cleanup;
   }
   if (size != 0) {
     memcpy(output, encoded, size);
   }
   *encoded_size = size;
-  return MOONLIGHT_PROTOCOL_RESULT_OK;
+  result = MOONLIGHT_PROTOCOL_RESULT_OK;
+
+cleanup:
+  catalog_secure_clear(maximum_entries, sizeof(maximum_entries));
+  catalog_secure_clear(encoded, sizeof(encoded));
+  return result;
 }
 
 MoonlightProtocolResult MoonlightProtocolV1DecodeGetAppListRequest(
@@ -586,30 +611,36 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeGetAppListRequest(
       &value
     );
     if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-      return result;
+      goto cleanup;
     }
     if (field.field_id < 1u || field.field_id > APP_LIST_FIELD_MAX) {
-      return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+      result = MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+      goto cleanup;
     }
     if (field.field_id <= last_field_id) {
-      return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+      result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+      goto cleanup;
     }
     if (field.flags != 0) {
-      return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+      result = MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+      goto cleanup;
     }
     if (field.field_id == 1u) {
       if (field.field_length != MOONLIGHT_PROTOCOL_V1_APP_LIST_CURSOR_SIZE) {
-        return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
       }
       memcpy(decoded.cursor, value, sizeof(decoded.cursor));
       decoded.cursor_size = sizeof(decoded.cursor);
     } else {
       if (field.field_length != 2u) {
-        return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
       }
       decoded.maximum_entries = catalog_load_u16(value);
       if (decoded.maximum_entries == 0) {
-        return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
       }
     }
     last_field_id = field.field_id;
@@ -617,10 +648,14 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeGetAppListRequest(
 
   result = catalog_validate_request(&decoded);
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+    goto cleanup;
   }
   *request = decoded;
-  return MOONLIGHT_PROTOCOL_RESULT_OK;
+  result = MOONLIGHT_PROTOCOL_RESULT_OK;
+
+cleanup:
+  catalog_secure_clear(&decoded, sizeof(decoded));
+  return result;
 }
 
 MoonlightProtocolResult MoonlightProtocolV1EncodeGetAppListResponse(
@@ -667,16 +702,23 @@ MoonlightProtocolResult MoonlightProtocolV1EncodeGetAppListResponse(
     );
   }
   if (size != 0 && output == NULL) {
-    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+    result = MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+    goto cleanup;
   }
   if (output_size < size) {
-    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+    result = MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+    goto cleanup;
   }
   if (size != 0) {
     memcpy(output, encoded, size);
   }
   *encoded_size = size;
-  return MOONLIGHT_PROTOCOL_RESULT_OK;
+  result = MOONLIGHT_PROTOCOL_RESULT_OK;
+
+cleanup:
+  catalog_secure_clear(record, sizeof(record));
+  catalog_secure_clear(encoded, sizeof(encoded));
+  return result;
 }
 
 MoonlightProtocolResult MoonlightProtocolV1DecodeGetAppListResponse(
@@ -708,23 +750,28 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeGetAppListResponse(
       &value
     );
     if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-      return result;
+      goto cleanup;
     }
     if (field.field_id < 1u || field.field_id > APP_LIST_FIELD_MAX) {
-      return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+      result = MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+      goto cleanup;
     }
     if (field.field_id == 1u) {
       if (saw_cursor) {
-        return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
       }
       if (field.flags != MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED) {
-        return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+        result = MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+        goto cleanup;
       }
       if (decoded.entry_count >= MOONLIGHT_PROTOCOL_V1_APP_LIST_MAX_ENTRIES) {
-        return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
       }
       if (field.field_length < MOONLIGHT_PROTOCOL_V1_APPLICATION_RECORD_PAYLOAD_MIN || field.field_length > MOONLIGHT_PROTOCOL_V1_APPLICATION_RECORD_PAYLOAD_MAX) {
-        return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
       }
       result = catalog_decode_record(
         value,
@@ -732,18 +779,21 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeGetAppListResponse(
         &decoded.entries[decoded.entry_count]
       );
       if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-        return result;
+        goto cleanup;
       }
       ++decoded.entry_count;
     } else {
       if (saw_cursor) {
-        return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
       }
       if (field.flags != 0) {
-        return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+        result = MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+        goto cleanup;
       }
       if (field.field_length != MOONLIGHT_PROTOCOL_V1_APP_LIST_CURSOR_SIZE) {
-        return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
       }
       memcpy(decoded.next_cursor, value, sizeof(decoded.next_cursor));
       decoded.next_cursor_size = sizeof(decoded.next_cursor);
@@ -753,8 +803,12 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeGetAppListResponse(
 
   result = catalog_validate_response(&decoded);
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+    goto cleanup;
   }
   *response = decoded;
-  return MOONLIGHT_PROTOCOL_RESULT_OK;
+  result = MOONLIGHT_PROTOCOL_RESULT_OK;
+
+cleanup:
+  catalog_secure_clear(&decoded, sizeof(decoded));
+  return result;
 }
