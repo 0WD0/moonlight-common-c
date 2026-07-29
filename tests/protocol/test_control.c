@@ -661,6 +661,15 @@ static bool test_request_decode_rejections(void) {
     ),
     MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
   );
+  test_store_u16(mutated + valid_size + 2u, 2);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeClientHelloRequest(
+      mutated,
+      valid_size + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE,
+      &output
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
   memcpy(mutated, valid, valid_size);
   memset(mutated + valid_size, 0, MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE);
   TEST_RESULT(

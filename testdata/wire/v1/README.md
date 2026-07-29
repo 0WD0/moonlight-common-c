@@ -14,9 +14,12 @@ representation.
 | `control-coalesced.hex` | initiating stream half | 73 | `07fa4b2cfa8673eb57e2345936107dcae2c177f05cc6a6b10253a90d1bde30fd` |
 | `control-early-hello-max.hex` | initiating stream half | 138 | `8d767889a177ba2514683fcd7a4c0e8dcac08bcfe8d24b05b0db21c581f5f56e` |
 | `goaway-notification.hex` | envelope and payload | 48 | `c87ac84c6f08b18c2386cc63987af9537201f793793d7ce768d7338bb2130e78` |
+| `pair-request-max.hex` | envelope and payload | 184 | `a9d6cadd6e4b24094963efab6124d78a1478cbb253f8a1c368cc9c4d9b9f2e3d` |
+| `pairing-proof-transcript.hex` | Client Proof signature transcript | 190 | `8560db7ba379d25e7226e816ae9ac254596f680a0c225dcde664162a59905ca2` |
 | `ping-success-response.hex` | envelope and payload | 35 | `cf325e5eb19d9daab5c2011e97762bb9ad86bde75713da712fa70bcee0bb9eaf` |
 | `rate-limited-error-response.hex` | envelope and payload | 48 | `ac964da8fe2359f7b813d88ca022ec2abe0661ce020c98ad93d42cb07b9833e2` |
 | `reliable-input-preface.hex` | lane preface | 16 | `12d6a7ab4f2132b0c46f156b3fec40c9d955f0672dd9fdba5c55cd112ec5db03` |
+| `streaming-proof-transcript.hex` | Client Proof signature transcript | 226 | `f1f123206ae2e3256bc6cda1a282aef460793e6680917f52d8e8e041a445f112` |
 | `tlv-repeated-nested.hex` | TLV container | 52 | `b8703ca26ee8ed735e34a00051bad8633f5c43f1f5dac5f6660690ab7248e71c` |
 | `video-data.hex` | DATAGRAM | 552 | `6f876d51680df4a99d48f8004e691ce1ebb8a8761db467070a2865aaefde2027` |
 | `video-parity.hex` | DATAGRAM | 552 | `0597eadbe31816d595a1b4ac667597b0cc1d67f270578995ae9cd36e81a45ea0` |
@@ -31,3 +34,23 @@ data coding shard.
 preface, a `CLIENT_HELLO` request envelope, and 98 bytes of canonical TLVs.
 The reverse direction of a bidirectional lane never repeats the preface;
 response and notification artifacts therefore begin directly with `SQM1`.
+
+`pairing-proof-transcript.hex` uses proof format 1, exporter bytes `00..1f`,
+Host ID `20..2f`, Host Identity `30..4f`, P-256 scheme 1, Credential digest
+`50..6f`, and admission hash `70..8f`.
+
+`pair-request-max.hex` is the exact maximum 184-byte `PAIR_REQUEST` envelope
+and payload, excluding the lane preface as required by `admission_hash`. It
+uses correlation ID `0x0102030405060708`, Host ID `00..0f`, token ID
+`10..1f`, invitation secret `20..3f`, and a 64-byte ASCII `A` Client name.
+Its decoded SHA-256 above is therefore also the request's canonical
+`admission_hash`.
+
+`streaming-proof-transcript.hex` uses proof format 1, exporter bytes `90..af`,
+Host ID `b0..bf`, Host Identity `c0..df`, Principal ID `e0..ef`, Credential
+epoch `0x0102030405060708`, observed authorization generation
+`0x1112131415161718`, RSA compatibility scheme 2, Credential digest `00..1f`,
+and admission hash `20..3f`. Both transcript artifacts are the exact bytes
+passed once to the platform's SHA-256-with-signature operation; no terminating
+NUL is present and callers must not pre-hash before using a `SHA256with...`
+signing API.

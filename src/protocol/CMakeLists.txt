@@ -48,7 +48,15 @@ function(moonlight_protocol_v1_apply_warnings target_name)
   endif()
 endfunction()
 
-add_library(moonlight-protocol-v1 STATIC control.c media.c wire.c)
+add_library(
+  moonlight-protocol-v1
+  STATIC
+    client_proof.c
+    control.c
+    media.c
+    pairing.c
+    wire.c
+)
 add_library(moonlight::protocol-v1 ALIAS moonlight-protocol-v1)
 
 set_target_properties(
