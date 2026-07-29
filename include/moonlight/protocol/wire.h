@@ -358,6 +358,32 @@ extern "C" {
   );
 
   /**
+   * @brief Encodes an empty error response to one bounded unknown request.
+   *
+   * This narrow encoder preserves the unknown request's raw 16-bit type and
+   * correlation ID while producing canonical `RESPONSE | ERROR` flags,
+   * `UNSUPPORTED_MESSAGE` status, and a zero payload length. It accepts only a
+   * type absent from the exact version 1 registry and a nonzero correlation
+   * ID. The generic envelope decoder intentionally continues to reject the
+   * resulting unknown response.
+   *
+   * The output is not modified when validation fails.
+   *
+   * @param unknown_message_type Raw unknown request type from a safely drained envelope.
+   * @param correlation_id Nonzero correlation ID from that request.
+   * @param output Destination buffer.
+   * @param output_size Available bytes in `output`.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult
+    MoonlightProtocolV1EncodeUnknownRequestUnsupportedResponse(
+      uint16_t unknown_message_type,
+      uint64_t correlation_id,
+      uint8_t *output,
+      size_t output_size
+    );
+
+  /**
    * @brief Decodes one canonical reliable-message envelope.
    *
    * @param input Bytes beginning with a complete envelope.

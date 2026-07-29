@@ -774,6 +774,117 @@ static bool test_fixed_headers_and_forms(void) {
 }
 
 /**
+ * @brief Verifies the narrow unknown-request error-response encoder.
+ *
+ * @return True on success.
+ */
+static bool test_unknown_request_response_encoder(void) {
+  const uint16_t unknown_type = 0x7ffb;
+  const uint64_t correlation_id = UINT64_C(0x0102030405060708);
+  uint8_t output[MOONLIGHT_PROTOCOL_V1_MESSAGE_ENVELOPE_SIZE];
+  uint8_t unchanged[sizeof(output)];
+  MoonlightProtocolV1MessageEnvelope decoded;
+  MoonlightProtocolV1MessageEnvelope decoded_before;
+
+  memset(output, 0xa5, sizeof(output));
+  memcpy(unchanged, output, sizeof(output));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeUnknownRequestUnsupportedResponse(
+      unknown_type,
+      correlation_id,
+      NULL,
+      sizeof(output)
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeUnknownRequestUnsupportedResponse(
+      MOONLIGHT_PROTOCOL_V1_MESSAGE_PING,
+      correlation_id,
+      output,
+      sizeof(output)
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeUnknownRequestUnsupportedResponse(
+      unknown_type,
+      0,
+      output,
+      sizeof(output)
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeUnknownRequestUnsupportedResponse(
+      unknown_type,
+      correlation_id,
+      output,
+      sizeof(output) - 1u
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL
+  );
+  TEST_CHECK(memcmp(output, unchanged, sizeof(output)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeUnknownRequestUnsupportedResponse(
+      unknown_type,
+      correlation_id,
+      output,
+      sizeof(output)
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(output[0] == 0x53 && output[1] == 0x51);
+  TEST_CHECK(output[2] == 0x4d && output[3] == 0x31);
+  TEST_CHECK(output[4] == 0x7f && output[5] == 0xfb);
+  TEST_CHECK(
+    output[6] == 0 &&
+    output[7] ==
+      (MOONLIGHT_PROTOCOL_V1_ENVELOPE_FLAG_RESPONSE |
+       MOONLIGHT_PROTOCOL_V1_ENVELOPE_FLAG_ERROR)
+  );
+  TEST_CHECK(output[8] == 0 && output[11] == 0);
+  TEST_CHECK(
+    output[12] == 0 &&
+    output[15] == MOONLIGHT_PROTOCOL_V1_STATUS_UNSUPPORTED_MESSAGE
+  );
+  TEST_CHECK(
+    output[16] == 0x01 &&
+    output[17] == 0x02 &&
+    output[22] == 0x07 &&
+    output[23] == 0x08
+  );
+
+  memset(&decoded, 0xa5, sizeof(decoded));
+  memcpy(&decoded_before, &decoded, sizeof(decoded));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeMessageEnvelope(
+      output,
+      sizeof(output),
+      MOONLIGHT_PROTOCOL_V1_CONTROL_PAYLOAD_MAX,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  TEST_CHECK(
+    memcmp(&decoded, &decoded_before, sizeof(decoded)) == 0
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeUnknownRequestUnsupportedResponse(
+      0,
+      1,
+      output,
+      sizeof(output)
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(output[4] == 0 && output[5] == 0);
+  return true;
+}
+
+/**
  * @brief Tests fixed-header validation and failure atomicity.
  *
  * @return True on success.
@@ -3675,6 +3786,7 @@ int main(void) {
   bool passed = true;
 
   passed = run_test("fixed headers and forms", test_fixed_headers_and_forms) && passed;
+  passed = run_test("unknown request response encoder", test_unknown_request_response_encoder) && passed;
   passed = run_test("fixed header atomic errors", test_fixed_header_errors_are_atomic) && passed;
   passed = run_test("fixed header validation matrix", test_fixed_header_validation_matrix) && passed;
   passed = run_test("stream all splits and bytes", test_stream_all_splits_and_bytes) && passed;

@@ -581,3 +581,86 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeClientHelloResponse(
   *response = decoded;
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
+
+MoonlightProtocolResult MoonlightProtocolV1EncodePingPayload(
+  const MoonlightProtocolV1PingPayload *payload,
+  uint8_t *output,
+  size_t output_size,
+  size_t *encoded_size
+) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_PING_PAYLOAD_MAX];
+  size_t size;
+
+  if (payload == NULL || encoded_size == NULL || (output == NULL && payload->token_size != 0)) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (payload->token_size > MOONLIGHT_PROTOCOL_V1_PING_TOKEN_MAX) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (payload->token_size == 0) {
+    *encoded_size = 0;
+    return MOONLIGHT_PROTOCOL_RESULT_OK;
+  }
+
+  size = encode_scalar(
+    encoded,
+    1,
+    payload->token,
+    payload->token_size
+  );
+  if (output_size < size) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodePingPayload(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1PingPayload *payload
+) {
+  MoonlightProtocolV1PingPayload decoded;
+  const uint8_t *value;
+  size_t value_size;
+  size_t offset = 0;
+  MoonlightProtocolResult result;
+
+  if (payload == NULL || (input == NULL && input_size != 0)) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (input_size > MOONLIGHT_PROTOCOL_V1_PING_PAYLOAD_MAX) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  if (input_size == 0) {
+    *payload = decoded;
+    return MOONLIGHT_PROTOCOL_RESULT_OK;
+  }
+  if (input_size < MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + 1u) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  result = decode_expected_scalar(
+    input,
+    input_size,
+    &offset,
+    1,
+    1,
+    &value,
+    &value_size
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = classify_trailing_field(input, input_size, offset, 1);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  memcpy(decoded.token, value, value_size);
+  decoded.token_size = value_size;
+  *payload = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}

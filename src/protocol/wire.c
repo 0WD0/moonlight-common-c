@@ -429,6 +429,45 @@ MoonlightProtocolResult MoonlightProtocolV1EncodeMessageEnvelope(
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
 
+MoonlightProtocolResult
+  MoonlightProtocolV1EncodeUnknownRequestUnsupportedResponse(
+    uint16_t unknown_message_type,
+    uint64_t correlation_id,
+    uint8_t *output,
+    size_t output_size
+  ) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_MESSAGE_ENVELOPE_SIZE];
+
+  if (output == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (MoonlightProtocolV1MessageTypeIsKnown(unknown_message_type)) {
+    return MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH;
+  }
+  if (correlation_id == 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (output_size < sizeof(encoded)) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+
+  store_u32(encoded, MESSAGE_ENVELOPE_MAGIC);
+  store_u16(encoded + 4u, unknown_message_type);
+  store_u16(
+    encoded + 6u,
+    MOONLIGHT_PROTOCOL_V1_ENVELOPE_FLAG_RESPONSE |
+      MOONLIGHT_PROTOCOL_V1_ENVELOPE_FLAG_ERROR
+  );
+  store_u32(encoded + 8u, 0);
+  store_u32(
+    encoded + 12u,
+    MOONLIGHT_PROTOCOL_V1_STATUS_UNSUPPORTED_MESSAGE
+  );
+  store_u64(encoded + 16u, correlation_id);
+  memcpy(output, encoded, sizeof(encoded));
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
 /**
  * @brief Decodes an envelope while accepting an unknown message registry type.
  *

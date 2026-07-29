@@ -986,6 +986,291 @@ static bool test_response_decode_rejections(void) {
 }
 
 /**
+ * @brief Verifies canonical PING payloads at the absent and token bounds.
+ *
+ * @return True on success.
+ */
+static bool test_ping_round_trip_bounds(void) {
+  MoonlightProtocolV1PingPayload payload = {0};
+  MoonlightProtocolV1PingPayload decoded;
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_PING_PAYLOAD_MAX];
+  size_t encoded_size = 123;
+  size_t index;
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePingPayload(
+      &payload,
+      NULL,
+      0,
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(encoded_size == 0);
+  memset(&decoded, 0xa5, sizeof(decoded));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(NULL, 0, &decoded),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(decoded.token_size == 0);
+
+  payload.token[0] = 0x7e;
+  payload.token_size = 1;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePingPayload(
+      &payload,
+      encoded,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(encoded_size == MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + 1u);
+  TEST_CHECK(encoded[0] == 0 && encoded[1] == 1);
+  TEST_CHECK(encoded[2] == 0 && encoded[3] == 0);
+  TEST_CHECK(encoded[4] == 0 && encoded[7] == 1);
+  TEST_CHECK(encoded[8] == 0x7e);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      encoded,
+      encoded_size,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(decoded.token_size == 1);
+  TEST_CHECK(decoded.token[0] == 0x7e);
+
+  for (index = 0; index < sizeof(payload.token); ++index) {
+    payload.token[index] = (uint8_t) index;
+  }
+  payload.token_size = sizeof(payload.token);
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePingPayload(
+      &payload,
+      encoded,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(encoded_size == sizeof(encoded));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      encoded,
+      encoded_size,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(decoded.token_size == sizeof(payload.token));
+  TEST_CHECK(memcmp(decoded.token, payload.token, sizeof(payload.token)) == 0);
+  return true;
+}
+
+/**
+ * @brief Verifies PING argument, bound, schema, and failure atomicity checks.
+ *
+ * @return True on success.
+ */
+static bool test_ping_rejections(void) {
+  MoonlightProtocolV1PingPayload payload = {
+    .token = {0x42},
+    .token_size = 1,
+  };
+  MoonlightProtocolV1PingPayload decoded;
+  MoonlightProtocolV1PingPayload unchanged_decoded;
+  uint8_t valid[MOONLIGHT_PROTOCOL_V1_PING_PAYLOAD_MAX];
+  uint8_t mutated[MOONLIGHT_PROTOCOL_V1_PING_PAYLOAD_MAX + 1u];
+  uint8_t output[MOONLIGHT_PROTOCOL_V1_PING_PAYLOAD_MAX];
+  uint8_t unchanged_output[sizeof(output)];
+  size_t valid_size = 0;
+  size_t encoded_size = 77;
+
+  memset(output, 0xa5, sizeof(output));
+  memcpy(unchanged_output, output, sizeof(output));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePingPayload(
+      NULL,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePingPayload(
+      &payload,
+      output,
+      sizeof(output),
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePingPayload(
+      &payload,
+      NULL,
+      0,
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  payload.token_size = MOONLIGHT_PROTOCOL_V1_PING_TOKEN_MAX + 1u;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePingPayload(
+      &payload,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  payload.token_size = 1;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePingPayload(
+      &payload,
+      output,
+      MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE,
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL
+  );
+  TEST_CHECK(memcmp(output, unchanged_output, sizeof(output)) == 0);
+  TEST_CHECK(encoded_size == 77);
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePingPayload(
+      &payload,
+      valid,
+      sizeof(valid),
+      &valid_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  memset(&decoded, 0xa5, sizeof(decoded));
+  unchanged_decoded = decoded;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(NULL, 1, &decoded),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(valid, valid_size, NULL),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  memset(mutated, 0, sizeof(mutated));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      mutated,
+      sizeof(mutated),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(valid, 1, &decoded),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+
+  memcpy(mutated, valid, valid_size);
+  test_store_u16(mutated, 2);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      mutated,
+      valid_size,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  memcpy(mutated, valid, valid_size);
+  test_store_u16(mutated, 0);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      mutated,
+      valid_size,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  memcpy(mutated, valid, valid_size);
+  test_store_u16(mutated + 2u, MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      mutated,
+      valid_size,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  memcpy(mutated, valid, valid_size);
+  test_store_u32(mutated + 4u, 0);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      mutated,
+      MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  memcpy(mutated, valid, valid_size);
+  test_store_u32(mutated + 4u, 2);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      mutated,
+      valid_size,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+
+  memcpy(mutated, valid, valid_size);
+  mutated[valid_size] = 0;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      mutated,
+      valid_size + 1u,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  memcpy(mutated, valid, valid_size);
+  memset(
+    mutated + valid_size,
+    0,
+    MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE
+  );
+  test_store_u16(mutated + valid_size, 1);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      mutated,
+      valid_size + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  test_store_u16(mutated + valid_size, 2);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      mutated,
+      valid_size + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  test_store_u32(mutated + valid_size + 4u, 1);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePingPayload(
+      mutated,
+      valid_size + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(memcmp(&decoded, &unchanged_decoded, sizeof(decoded)) == 0);
+  return true;
+}
+
+/**
  * @brief Executes all Control schema tests.
  *
  * @return Zero only when every test succeeds.
@@ -1002,6 +1287,8 @@ int main(void) {
     {"request decode rejections", test_request_decode_rejections},
     {"response encode rejections", test_response_encode_rejections},
     {"response decode rejections", test_response_decode_rejections},
+    {"PING round-trip bounds", test_ping_round_trip_bounds},
+    {"PING rejections", test_ping_rejections},
   };
 
   size_t index;
