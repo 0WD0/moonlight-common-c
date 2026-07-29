@@ -591,6 +591,60 @@ static MoonlightProtocolResult validate_streaming_request(
 }
 
 /**
+ * @brief Validates scheme-neutral Streaming CLIENT_PROOF fields.
+ *
+ * @param candidate Candidate decoded from the exact Streaming schema.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult validate_streaming_candidate(
+  const MoonlightProtocolV1StreamingClientProofCandidate *candidate
+) {
+  MoonlightProtocolResult result;
+
+  if (candidate == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = validate_proof_format(candidate->proof_format);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  if (candidate->credential_epoch == 0 || candidate->observed_authorization_generation == 0 || candidate->signature_size < MOONLIGHT_PROTOCOL_V1_P256_SIGNATURE_SIZE_MIN || candidate->signature_size > MOONLIGHT_PROTOCOL_V1_RSA2048_SIGNATURE_SIZE) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+/**
+ * @brief Clears a failed Streaming CLIENT_PROOF candidate output.
+ *
+ * @param candidate Candidate output to clear.
+ * @param result Failure result to return.
+ * @return The supplied failure result.
+ */
+static MoonlightProtocolResult fail_streaming_candidate(
+  MoonlightProtocolV1StreamingClientProofCandidate *candidate,
+  MoonlightProtocolResult result
+) {
+  memset(candidate, 0, sizeof(*candidate));
+  return result;
+}
+
+/**
+ * @brief Clears a failed scheme-bound Streaming CLIENT_PROOF output.
+ *
+ * @param request Scheme-bound request output to clear.
+ * @param result Failure result to return.
+ * @return The supplied failure result.
+ */
+static MoonlightProtocolResult fail_streaming_request(
+  MoonlightProtocolV1StreamingClientProofRequest *request,
+  MoonlightProtocolResult result
+) {
+  memset(request, 0, sizeof(*request));
+  return result;
+}
+
+/**
  * @brief Appends one already validated scalar field to a local TLV writer.
  *
  * @param writer Initialized local writer.
@@ -1012,30 +1066,37 @@ MoonlightProtocolResult MoonlightProtocolV1EncodeStreamingClientProofRequest(
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
 
-MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofRequest(
+MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofCandidate(
   const uint8_t *input,
   size_t input_size,
-  MoonlightProtocolV1CredentialScheme credential_scheme,
-  MoonlightProtocolV1StreamingClientProofRequest *request
+  MoonlightProtocolV1StreamingClientProofCandidate *candidate
 ) {
-  MoonlightProtocolV1StreamingClientProofRequest decoded;
+  MoonlightProtocolV1StreamingClientProofCandidate decoded;
   const uint8_t *value;
   size_t value_size;
   size_t offset = 0;
   MoonlightProtocolResult result;
 
-  if (input == NULL || request == NULL) {
+  if (candidate == NULL) {
     return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
   }
-  result = validate_credential_scheme(credential_scheme);
-  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+  if (input == NULL) {
+    return fail_streaming_candidate(
+      candidate,
+      MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+    );
   }
   if (input_size > MOONLIGHT_PROTOCOL_V1_STREAMING_CLIENT_PROOF_REQUEST_PAYLOAD_MAX) {
-    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+    return fail_streaming_candidate(
+      candidate,
+      MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+    );
   }
   if (input_size < STREAMING_CLIENT_PROOF_PAYLOAD_MIN) {
-    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+    return fail_streaming_candidate(
+      candidate,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    );
   }
 
   memset(&decoded, 0, sizeof(decoded));
@@ -1049,15 +1110,18 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofRequest(
     &value_size
   );
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+    return fail_streaming_candidate(candidate, result);
   }
   if (value_size != 1u) {
-    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+    return fail_streaming_candidate(
+      candidate,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    );
   }
   decoded.proof_format = value[0];
   result = validate_proof_format(decoded.proof_format);
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+    return fail_streaming_candidate(candidate, result);
   }
 
   result = decode_expected_scalar(
@@ -1070,10 +1134,13 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofRequest(
     &value_size
   );
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+    return fail_streaming_candidate(candidate, result);
   }
   if (value_size != sizeof(decoded.principal_id)) {
-    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+    return fail_streaming_candidate(
+      candidate,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    );
   }
   memcpy(decoded.principal_id, value, value_size);
 
@@ -1087,10 +1154,13 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofRequest(
     &value_size
   );
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+    return fail_streaming_candidate(candidate, result);
   }
   if (value_size != 8u) {
-    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+    return fail_streaming_candidate(
+      candidate,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    );
   }
   decoded.credential_epoch = proof_load_u64(value);
 
@@ -1104,10 +1174,13 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofRequest(
     &value_size
   );
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+    return fail_streaming_candidate(candidate, result);
   }
   if (value_size != 8u) {
-    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+    return fail_streaming_candidate(
+      candidate,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    );
   }
   decoded.observed_authorization_generation = proof_load_u64(value);
 
@@ -1121,10 +1194,13 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofRequest(
     &value_size
   );
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+    return fail_streaming_candidate(candidate, result);
   }
   if (value_size != sizeof(decoded.admission_hash)) {
-    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+    return fail_streaming_candidate(
+      candidate,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    );
   }
   memcpy(decoded.admission_hash, value, value_size);
 
@@ -1138,15 +1214,19 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofRequest(
     &value_size
   );
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+    return fail_streaming_candidate(candidate, result);
   }
-  result = MoonlightProtocolV1ValidateProofSignature(
-    credential_scheme,
-    value,
-    value_size
-  );
-  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+  if (value_size < MOONLIGHT_PROTOCOL_V1_P256_SIGNATURE_SIZE_MIN) {
+    return fail_streaming_candidate(
+      candidate,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    );
+  }
+  if (value_size > MOONLIGHT_PROTOCOL_V1_RSA2048_SIGNATURE_SIZE) {  // GCOVR_EXCL_BR_LINE: exact preceding fields and the payload maximum already imply this bound.
+    return fail_streaming_candidate(  // GCOVR_EXCL_LINE
+      candidate,  // GCOVR_EXCL_LINE
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED  // GCOVR_EXCL_LINE
+    );  // GCOVR_EXCL_LINE
   }
   result = classify_trailing_field(
     input,
@@ -1155,12 +1235,107 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofRequest(
     STREAMING_CLIENT_PROOF_FIELD_COUNT
   );
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+    return fail_streaming_candidate(candidate, result);
   }
   memcpy(decoded.signature, value, value_size);
   decoded.signature_size = value_size;
 
-  result = validate_streaming_request(&decoded, credential_scheme);
+  result = validate_streaming_candidate(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return fail_streaming_candidate(candidate, result);
+  }
+  *candidate = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+  const MoonlightProtocolV1StreamingClientProofCandidate *candidate,
+  MoonlightProtocolV1CredentialScheme credential_scheme,
+  MoonlightProtocolV1StreamingClientProofRequest *request
+) {
+  MoonlightProtocolV1StreamingClientProofRequest finalized;
+  MoonlightProtocolResult result;
+
+  if (request == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = validate_credential_scheme(credential_scheme);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return fail_streaming_request(request, result);
+  }
+  result = validate_streaming_candidate(candidate);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return fail_streaming_request(request, result);
+  }
+  result = MoonlightProtocolV1ValidateProofSignature(
+    credential_scheme,
+    candidate->signature,
+    candidate->signature_size
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return fail_streaming_request(request, result);
+  }
+
+  memset(&finalized, 0, sizeof(finalized));
+  finalized.proof_format = candidate->proof_format;
+  memcpy(
+    finalized.principal_id,
+    candidate->principal_id,
+    sizeof(finalized.principal_id)
+  );
+  finalized.credential_epoch = candidate->credential_epoch;
+  finalized.observed_authorization_generation =
+    candidate->observed_authorization_generation;
+  memcpy(
+    finalized.admission_hash,
+    candidate->admission_hash,
+    sizeof(finalized.admission_hash)
+  );
+  memcpy(
+    finalized.signature,
+    candidate->signature,
+    candidate->signature_size
+  );
+  finalized.signature_size = candidate->signature_size;
+
+  result = validate_streaming_request(&finalized, credential_scheme);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {  // GCOVR_EXCL_BR_LINE: all fields were validated above.
+    return fail_streaming_request(request, result);  // GCOVR_EXCL_LINE
+  }
+  *request = finalized;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofRequest(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1CredentialScheme credential_scheme,
+  MoonlightProtocolV1StreamingClientProofRequest *request
+) {
+  MoonlightProtocolV1StreamingClientProofCandidate candidate;
+  MoonlightProtocolV1StreamingClientProofRequest decoded;
+  MoonlightProtocolResult result;
+
+  if (input == NULL || request == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = validate_credential_scheme(credential_scheme);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = MoonlightProtocolV1DecodeStreamingClientProofCandidate(
+    input,
+    input_size,
+    &candidate
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+    &candidate,
+    credential_scheme,
+    &decoded
+  );
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
     return result;
   }

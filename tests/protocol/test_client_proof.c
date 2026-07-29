@@ -656,6 +656,58 @@ static bool streaming_requests_equal(
 }
 
 /**
+ * @brief Compares one scheme-neutral candidate with its source request.
+ *
+ * @param candidate Decoded candidate.
+ * @param request Original scheme-bound request.
+ * @return True when every wire field matches.
+ */
+static bool streaming_candidate_matches_request(
+  const MoonlightProtocolV1StreamingClientProofCandidate *candidate,
+  const MoonlightProtocolV1StreamingClientProofRequest *request
+) {
+  return candidate->proof_format == request->proof_format &&
+         memcmp(
+           candidate->principal_id,
+           request->principal_id,
+           sizeof(candidate->principal_id)
+         ) == 0 &&
+         candidate->credential_epoch == request->credential_epoch &&
+         candidate->observed_authorization_generation ==
+           request->observed_authorization_generation &&
+         memcmp(
+           candidate->admission_hash,
+           request->admission_hash,
+           sizeof(candidate->admission_hash)
+         ) == 0 &&
+         candidate->signature_size == request->signature_size &&
+         memcmp(
+           candidate->signature,
+           request->signature,
+           request->signature_size
+         ) == 0;
+}
+
+/**
+ * @brief Tests whether a complete object representation is zero.
+ *
+ * @param value Object bytes to inspect.
+ * @param value_size Number of bytes in `value`.
+ * @return True only when every byte is zero.
+ */
+static bool object_is_zero(const void *value, size_t value_size) {
+  const uint8_t *bytes = value;
+  size_t index;
+
+  for (index = 0; index < value_size; ++index) {
+    if (bytes[index] != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * @brief Encodes one minimum P-256 Pairing request for mutation tests.
  *
  * @param output Destination with maximum Pairing capacity.
@@ -1368,6 +1420,278 @@ static bool test_streaming_round_trip_and_context(void) {
     ),
     MOONLIGHT_PROTOCOL_RESULT_MALFORMED
   );
+  return true;
+}
+
+/**
+ * @brief Verifies scheme-neutral Streaming Proof decode and stored-scheme handoff.
+ *
+ * @return True on success.
+ */
+static bool test_streaming_candidate_handoff(void) {
+  uint8_t encoded
+    [MOONLIGHT_PROTOCOL_V1_STREAMING_CLIENT_PROOF_REQUEST_PAYLOAD_MAX + 1u];
+  MoonlightProtocolV1StreamingClientProofCandidate candidate;
+  MoonlightProtocolV1StreamingClientProofCandidate valid_candidate;
+  MoonlightProtocolV1StreamingClientProofRequest finalized;
+  MoonlightProtocolV1StreamingClientProofRequest request;
+  size_t encoded_size;
+  size_t header_offset;
+  size_t value_offset;
+  size_t value_size;
+
+  request = make_streaming_request(
+    MOONLIGHT_PROTOCOL_V1_CREDENTIAL_ECDSA_P256_SHA256,
+    false
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeStreamingClientProofRequest(
+      &request,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_ECDSA_P256_SHA256,
+      encoded,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeStreamingClientProofCandidate(
+      encoded,
+      encoded_size,
+      &candidate
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(streaming_candidate_matches_request(&candidate, &request));
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_ECDSA_P256_SHA256,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(streaming_requests_equal(&finalized, &request));
+  valid_candidate = candidate;
+
+  TEST_CHECK(find_tlv_field(encoded, encoded_size, 6u, &header_offset, &value_offset, &value_size));
+  TEST_CHECK(value_size == MOONLIGHT_PROTOCOL_V1_P256_SIGNATURE_SIZE_MIN);
+  encoded[value_offset] ^= 1u;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeStreamingClientProofCandidate(
+      encoded,
+      encoded_size,
+      &candidate
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(candidate.signature[0] == encoded[value_offset]);
+  memset(&finalized, 0xa5, sizeof(finalized));
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_ECDSA_P256_SHA256,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(object_is_zero(&finalized, sizeof(finalized)));
+
+  memset(&finalized, 0xa5, sizeof(finalized));
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &valid_candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(object_is_zero(&finalized, sizeof(finalized)));
+
+  request = make_streaming_request(
+    MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+    false
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeStreamingClientProofRequest(
+      &request,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      encoded,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeStreamingClientProofCandidate(
+      encoded,
+      encoded_size,
+      &candidate
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(streaming_candidate_matches_request(&candidate, &request));
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(streaming_requests_equal(&finalized, &request));
+  valid_candidate = candidate;
+
+  TEST_CHECK(find_tlv_field(encoded, encoded_size, 6u, &header_offset, &value_offset, &value_size));
+  TEST_CHECK(value_size == MOONLIGHT_PROTOCOL_V1_RSA2048_SIGNATURE_SIZE);
+  test_store_u32(encoded + header_offset + 4u, 255u);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeStreamingClientProofCandidate(
+      encoded,
+      encoded_size - 1u,
+      &candidate
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(candidate.signature_size == 255u);
+  memset(&finalized, 0xa5, sizeof(finalized));
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(object_is_zero(&finalized, sizeof(finalized)));
+
+  memset(&finalized, 0xa5, sizeof(finalized));
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &valid_candidate,
+      (MoonlightProtocolV1CredentialScheme) 0x7f,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  TEST_CHECK(object_is_zero(&finalized, sizeof(finalized)));
+  memset(&finalized, 0xa5, sizeof(finalized));
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      NULL,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_CHECK(object_is_zero(&finalized, sizeof(finalized)));
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &valid_candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+
+  candidate = valid_candidate;
+  candidate.proof_format = 2u;
+  memset(&finalized, 0xa5, sizeof(finalized));
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  TEST_CHECK(object_is_zero(&finalized, sizeof(finalized)));
+  candidate = valid_candidate;
+  candidate.credential_epoch = 0;
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(object_is_zero(&finalized, sizeof(finalized)));
+  candidate = valid_candidate;
+  candidate.observed_authorization_generation = 0;
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(object_is_zero(&finalized, sizeof(finalized)));
+  candidate = valid_candidate;
+  candidate.signature_size =
+    MOONLIGHT_PROTOCOL_V1_P256_SIGNATURE_SIZE_MIN - 1u;
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(object_is_zero(&finalized, sizeof(finalized)));
+  candidate = valid_candidate;
+  candidate.signature_size =
+    MOONLIGHT_PROTOCOL_V1_RSA2048_SIGNATURE_SIZE + 1u;
+  TEST_RESULT(
+    MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+      &candidate,
+      MOONLIGHT_PROTOCOL_V1_CREDENTIAL_RSA2048_PKCS1_SHA256_COMPAT,
+      &finalized
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(object_is_zero(&finalized, sizeof(finalized)));
+
+  memset(&candidate, 0xa5, sizeof(candidate));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeStreamingClientProofCandidate(
+      NULL,
+      0,
+      &candidate
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_CHECK(object_is_zero(&candidate, sizeof(candidate)));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeStreamingClientProofCandidate(
+      encoded,
+      encoded_size,
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  memset(&candidate, 0xa5, sizeof(candidate));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeStreamingClientProofCandidate(
+      encoded,
+      0,
+      &candidate
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(object_is_zero(&candidate, sizeof(candidate)));
+  encoded[encoded_size] = 0;
+  memset(&candidate, 0xa5, sizeof(candidate));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeStreamingClientProofCandidate(
+      encoded,
+      encoded_size + 1u,
+      &candidate
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+  );
+  TEST_CHECK(object_is_zero(&candidate, sizeof(candidate)));
   return true;
 }
 
@@ -2543,6 +2867,7 @@ int main(void) {
     {"signature representations", test_signature_representations},
     {"Pairing round-trip bounds", test_pairing_round_trip_bounds},
     {"Streaming round-trip and context", test_streaming_round_trip_and_context},
+    {"Streaming candidate handoff", test_streaming_candidate_handoff},
     {"exact proof transcripts", test_exact_transcripts},
     {"transcript rejection atomicity", test_transcript_rejections_are_atomic},
     {"Pairing encode rejection atomicity", test_pairing_encode_rejections_are_atomic},

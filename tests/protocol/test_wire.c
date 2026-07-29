@@ -4,6 +4,7 @@
  */
 
 #include <limits.h>
+#include <moonlight/protocol/client_proof.h>
 #include <moonlight/protocol/wire.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -2092,6 +2093,281 @@ static bool test_stream_unknown_request_drain(void) {
 }
 
 /**
+ * @brief Tests atomic payload-limit updates at both clean boundary states.
+ *
+ * @return True on success.
+ */
+static bool test_stream_payload_limit_boundary_updates(void) {
+  static const uint8_t payload[] = {0xaa, 0xbb};
+  const MoonlightProtocolV1LanePreface lane = {
+    .kind = MOONLIGHT_PROTOCOL_V1_LANE_CONTROL,
+    .session_wire_id = 0,
+  };
+  MoonlightProtocolV1MessageEnvelope envelope = {
+    .message_type = MOONLIGHT_PROTOCOL_V1_MESSAGE_PING,
+    .flags = 0,
+    .payload_length = sizeof(payload),
+    .status = MOONLIGHT_PROTOCOL_V1_STATUS_OK,
+    .correlation_id = 1,
+  };
+  uint8_t preface[MOONLIGHT_PROTOCOL_V1_LANE_PREFACE_SIZE];
+  uint8_t header[MOONLIGHT_PROTOCOL_V1_MESSAGE_ENVELOPE_SIZE];
+  MoonlightProtocolV1StreamParser parser;
+  MoonlightProtocolV1StreamParser before;
+  MoonlightProtocolV1StreamEvent event;
+  size_t consumed;
+
+  TEST_CHECK(encode_control_preface(preface));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeMessageEnvelope(
+      &envelope,
+      MOONLIGHT_PROTOCOL_V1_CONTROL_PAYLOAD_MAX,
+      header,
+      sizeof(header)
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(NULL, 1),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserInitialize(
+      &parser,
+      MOONLIGHT_PROTOCOL_V1_CLIENT_HELLO_REQUEST_PAYLOAD_MAX
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  memcpy(&before, &parser, sizeof(parser));
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(
+      &parser,
+      MOONLIGHT_PROTOCOL_V1_STREAMING_CLIENT_PROOF_REQUEST_PAYLOAD_MAX
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserFeed(
+      &parser,
+      preface,
+      1,
+      &consumed,
+      &event
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(consumed == 1);
+  TEST_CHECK(event.type == MOONLIGHT_PROTOCOL_V1_STREAM_EVENT_NONE);
+  memcpy(&before, &parser, sizeof(parser));
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(
+      &parser,
+      MOONLIGHT_PROTOCOL_V1_STREAMING_CLIENT_PROOF_REQUEST_PAYLOAD_MAX
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserInitialize(
+      &parser,
+      MOONLIGHT_PROTOCOL_V1_CLIENT_HELLO_REQUEST_PAYLOAD_MAX
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserFeed(
+      &parser,
+      preface,
+      sizeof(preface),
+      &consumed,
+      &event
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(consumed == sizeof(preface));
+  TEST_CHECK(event.type == MOONLIGHT_PROTOCOL_V1_STREAM_EVENT_LANE_PREFACE);
+  memcpy(&before, &parser, sizeof(parser));
+  before.payload_limit =
+    MOONLIGHT_PROTOCOL_V1_STREAMING_CLIENT_PROOF_REQUEST_PAYLOAD_MAX;
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(
+      &parser,
+      MOONLIGHT_PROTOCOL_V1_STREAMING_CLIENT_PROOF_REQUEST_PAYLOAD_MAX
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+
+  memcpy(&before, &parser, sizeof(parser));
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(
+      &parser,
+      MOONLIGHT_PROTOCOL_V1_BULK_PAYLOAD_MAX + 1u
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserFeed(
+      &parser,
+      header,
+      1,
+      &consumed,
+      &event
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(consumed == 1);
+  TEST_CHECK(event.type == MOONLIGHT_PROTOCOL_V1_STREAM_EVENT_NONE);
+  memcpy(&before, &parser, sizeof(parser));
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(&parser, 1),
+    MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserInitializeReverse(
+      &parser,
+      &lane,
+      MOONLIGHT_PROTOCOL_V1_CLIENT_HELLO_REQUEST_PAYLOAD_MAX
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  memcpy(&before, &parser, sizeof(parser));
+  before.payload_limit =
+    MOONLIGHT_PROTOCOL_V1_STREAMING_CLIENT_PROOF_REQUEST_PAYLOAD_MAX;
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(
+      &parser,
+      MOONLIGHT_PROTOCOL_V1_STREAMING_CLIENT_PROOF_REQUEST_PAYLOAD_MAX
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserFeed(
+      &parser,
+      header,
+      sizeof(header),
+      &consumed,
+      &event
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(consumed == sizeof(header));
+  TEST_CHECK(event.type == MOONLIGHT_PROTOCOL_V1_STREAM_EVENT_ENVELOPE_BEGIN);
+  memcpy(&before, &parser, sizeof(parser));
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(&parser, 1),
+    MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserFeed(
+      &parser,
+      payload,
+      1,
+      &consumed,
+      &event
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(consumed == 1);
+  TEST_CHECK(event.type == MOONLIGHT_PROTOCOL_V1_STREAM_EVENT_PAYLOAD);
+  memcpy(&before, &parser, sizeof(parser));
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(&parser, 1),
+    MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserFeed(
+      &parser,
+      payload + 1u,
+      1,
+      &consumed,
+      &event
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(consumed == 1);
+  TEST_CHECK(event.type == MOONLIGHT_PROTOCOL_V1_STREAM_EVENT_PAYLOAD);
+  memcpy(&before, &parser, sizeof(parser));
+  before.payload_limit = 400u;
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(&parser, 400u),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserFeed(
+      &parser,
+      NULL,
+      0,
+      &consumed,
+      &event
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(consumed == 0);
+  TEST_CHECK(event.type == MOONLIGHT_PROTOCOL_V1_STREAM_EVENT_ENVELOPE_END);
+  memcpy(&before, &parser, sizeof(parser));
+  before.payload_limit = 500u;
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(&parser, 500u),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(
+      &parser,
+      MOONLIGHT_PROTOCOL_V1_BULK_PAYLOAD_MAX
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  envelope.payload_length = MOONLIGHT_PROTOCOL_V1_CONTROL_PAYLOAD_MAX + 1u;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeMessageEnvelope(
+      &envelope,
+      MOONLIGHT_PROTOCOL_V1_BULK_PAYLOAD_MAX,
+      header,
+      sizeof(header)
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserFeed(
+      &parser,
+      header,
+      sizeof(header),
+      &consumed,
+      &event
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+  );
+  TEST_CHECK(consumed == sizeof(header));
+  TEST_CHECK(event.type == MOONLIGHT_PROTOCOL_V1_STREAM_EVENT_NONE);
+  memcpy(&before, &parser, sizeof(parser));
+  TEST_RESULT(
+    MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(&parser, 1),
+    MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH
+  );
+  TEST_CHECK(memcmp(&parser, &before, sizeof(parser)) == 0);
+  return true;
+}
+
+/**
  * @brief Tests FIN at every byte and every complete framing boundary.
  *
  * @return True on success.
@@ -3405,6 +3681,7 @@ int main(void) {
   passed = run_test("stream coalesced and reverse", test_stream_coalesced_and_reverse) && passed;
   passed = run_test("stream half-role matrix", test_stream_half_role_matrix) && passed;
   passed = run_test("stream unknown request drain", test_stream_unknown_request_drain) && passed;
+  passed = run_test("stream payload-limit boundary updates", test_stream_payload_limit_boundary_updates) && passed;
   passed = run_test("stream FIN boundaries", test_stream_finish_boundaries) && passed;
   passed = run_test("stream failures", test_stream_failures) && passed;
   passed = run_test("TLV round-trip splits", test_tlv_round_trip_splits) && passed;

@@ -103,6 +103,24 @@ extern "C" {
   } MoonlightProtocolV1StreamingClientProofRequest;
 
   /**
+   * @brief Holds one schema-valid Streaming CLIENT_PROOF before Credential lookup.
+   *
+   * The signature is deliberately opaque at this stage. No algorithm selector
+   * is present on the Streaming wire; callers use `principal_id` and
+   * `credential_epoch` to obtain the immutable stored Credential scheme, then
+   * call `MoonlightProtocolV1FinalizeStreamingClientProofCandidate`.
+   */
+  typedef struct MoonlightProtocolV1StreamingClientProofCandidate {
+    uint8_t proof_format;  ///< Exact Client Proof format, currently one.
+    uint8_t principal_id[MOONLIGHT_PROTOCOL_V1_UUID_SIZE];  ///< Claimed Host-local Principal selector.
+    uint64_t credential_epoch;  ///< Nonzero Client Credential epoch.
+    uint64_t observed_authorization_generation;  ///< Nonzero Client-observed authorization generation.
+    uint8_t admission_hash[MOONLIGHT_PROTOCOL_V1_CLIENT_PROOF_SHA256_SIZE];  ///< Bound CLIENT_HELLO digest.
+    uint8_t signature[MOONLIGHT_PROTOCOL_V1_RSA2048_SIGNATURE_SIZE];  ///< Opaque bounded signature bytes.
+    size_t signature_size;  ///< Opaque signature size in `[8, 256]`.
+  } MoonlightProtocolV1StreamingClientProofCandidate;
+
+  /**
    * @brief Holds every variable field in one Pairing Proof transcript.
    */
   typedef struct MoonlightProtocolV1PairingProofTranscript {
@@ -223,6 +241,45 @@ extern "C" {
     uint8_t *output,
     size_t output_size,
     size_t *encoded_size
+  );
+
+  /**
+   * @brief Decodes a Streaming CLIENT_PROOF without selecting a signature scheme.
+   *
+   * This accepts exactly six ordered scalar TLVs, validates fields one through
+   * five, and retains field six only as an opaque signature of 8 through 256
+   * bytes. The candidate is zeroed on every failure. No unauthenticated wire
+   * value can select the signature algorithm.
+   *
+   * Structural incompleteness is `MOONLIGHT_PROTOCOL_RESULT_MALFORMED` because
+   * this API consumes an already delimited complete payload.
+   *
+   * @param input Complete payload bytes.
+   * @param input_size Number of bytes in `input`.
+   * @param candidate Receives schema-valid values on success and zeros on failure.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1DecodeStreamingClientProofCandidate(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1StreamingClientProofCandidate *candidate
+  );
+
+  /**
+   * @brief Applies a stored Credential scheme to a Streaming Proof candidate.
+   *
+   * The immutable stored scheme selects the existing strict signature
+   * representation policy. The request is zeroed on every failure.
+   *
+   * @param candidate Schema-valid candidate decoded from the wire.
+   * @param credential_scheme Immutable stored Credential scheme.
+   * @param request Receives a scheme-bound request on success and zeros on failure.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1FinalizeStreamingClientProofCandidate(
+    const MoonlightProtocolV1StreamingClientProofCandidate *candidate,
+    MoonlightProtocolV1CredentialScheme credential_scheme,
+    MoonlightProtocolV1StreamingClientProofRequest *request
   );
 
   /**

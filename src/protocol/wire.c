@@ -775,6 +775,21 @@ MoonlightProtocolResult MoonlightProtocolV1StreamParserInitializeReverse(
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
 
+MoonlightProtocolResult MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(
+  MoonlightProtocolV1StreamParser *parser,
+  uint32_t payload_limit
+) {
+  if (parser == NULL || payload_limit > MOONLIGHT_PROTOCOL_V1_BULK_PAYLOAD_MAX) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (parser->terminal_result != MOONLIGHT_PROTOCOL_RESULT_OK || parser->header_size != 0 || parser->payload_remaining != 0 || (parser->state != STREAM_STATE_ENVELOPE && parser->state != STREAM_STATE_ENVELOPE_END)) {
+    return MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH;
+  }
+
+  parser->payload_limit = payload_limit;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
 /**
  * @brief Copies available fixed-header bytes into a stream parser.
  *

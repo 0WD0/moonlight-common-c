@@ -228,11 +228,13 @@ extern "C" {
    * @brief Caller-owned state for one allocation-free reliable-stream parser.
    *
    * Initialize this structure with `MoonlightProtocolV1StreamParserInitialize`
-   * and do not modify its fields while parsing. This parser enforces fixed
-   * framing, payload ceilings, and message-form direction on an already
-   * selected lane. The caller still enforces ALPN and QUIC stream identity,
-   * lane cardinality, proof and admission ordering, correlation replay rules,
-   * message schemas, authorization, and connection state.
+   * and do not modify its fields directly while parsing. Payload limits may be
+   * changed only through
+   * `MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary`. This parser
+   * enforces fixed framing, payload ceilings, and message-form direction on an
+   * already selected lane. The caller still enforces ALPN and QUIC stream
+   * identity, lane cardinality, proof and admission ordering, correlation
+   * replay rules, message schemas, authorization, and connection state.
    */
   typedef struct MoonlightProtocolV1StreamParser {
     uint8_t header_bytes[MOONLIGHT_PROTOCOL_V1_MESSAGE_ENVELOPE_SIZE];  ///< Partial fixed header.
@@ -427,6 +429,24 @@ extern "C" {
   MoonlightProtocolResult MoonlightProtocolV1StreamParserInitializeReverse(
     MoonlightProtocolV1StreamParser *parser,
     const MoonlightProtocolV1LanePreface *lane,
+    uint32_t payload_limit
+  );
+
+  /**
+   * @brief Changes the receive limit at a complete envelope boundary.
+   *
+   * The parser must be healthy and either ready for the next envelope or
+   * holding a complete envelope whose end event is pending. It must not retain
+   * a partial header or payload. The immutable lane ceiling remains in force
+   * when the next envelope is decoded. The parser is unchanged on failure.
+   *
+   * @param parser Initialized parser at a complete envelope boundary.
+   * @param payload_limit New explicit per-envelope payload maximum.
+   * @return OK on success, INVALID_ARGUMENT for a null parser or an absolute
+   * limit violation, and CONTEXT_MISMATCH outside a clean boundary.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1StreamParserSetPayloadLimitAtBoundary(
+    MoonlightProtocolV1StreamParser *parser,
     uint32_t payload_limit
   );
 
