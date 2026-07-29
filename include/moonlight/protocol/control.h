@@ -87,6 +87,68 @@ extern "C" {
    MOONLIGHT_PROTOCOL_V1_HOST_DISPLAY_NAME_MAX + \
    MOONLIGHT_PROTOCOL_V1_SOFTWARE_VERSION_MAX)
 
+/**
+ * @brief Exact byte count of an opaque GET_APP_LIST cursor.
+ */
+#define MOONLIGHT_PROTOCOL_V1_APP_LIST_CURSOR_SIZE 16u
+
+/**
+ * @brief Default GET_APP_LIST page size when request field 2 is absent.
+ */
+#define MOONLIGHT_PROTOCOL_V1_APP_LIST_DEFAULT_MAX_ENTRIES 64u
+
+/**
+ * @brief Maximum GET_APP_LIST application-record count in one page.
+ */
+#define MOONLIGHT_PROTOCOL_V1_APP_LIST_MAX_ENTRIES 128u
+
+/**
+ * @brief Maximum Application ID UTF-8 byte count.
+ */
+#define MOONLIGHT_PROTOCOL_V1_APPLICATION_ID_MAX 128u
+
+/**
+ * @brief Maximum Application display-name UTF-8 byte count.
+ */
+#define MOONLIGHT_PROTOCOL_V1_APPLICATION_DISPLAY_NAME_MAX 256u
+
+/**
+ * @brief Exact byte count of an optional Application icon SHA-256 digest.
+ */
+#define MOONLIGHT_PROTOCOL_V1_APPLICATION_ICON_DIGEST_SIZE 32u
+
+/**
+ * @brief Minimum canonical nested Application-record payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_APPLICATION_RECORD_PAYLOAD_MIN \
+  (2u * MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + 2u)
+
+/**
+ * @brief Maximum canonical nested Application-record payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_APPLICATION_RECORD_PAYLOAD_MAX \
+  (3u * MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + \
+   MOONLIGHT_PROTOCOL_V1_APPLICATION_ID_MAX + \
+   MOONLIGHT_PROTOCOL_V1_APPLICATION_DISPLAY_NAME_MAX + \
+   MOONLIGHT_PROTOCOL_V1_APPLICATION_ICON_DIGEST_SIZE)
+
+/**
+ * @brief Maximum canonical GET_APP_LIST request payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_GET_APP_LIST_REQUEST_PAYLOAD_MAX \
+  (2u * MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + \
+   MOONLIGHT_PROTOCOL_V1_APP_LIST_CURSOR_SIZE + 2u)
+
+/**
+ * @brief Maximum canonical successful GET_APP_LIST response payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_GET_APP_LIST_RESPONSE_PAYLOAD_MAX \
+  (MOONLIGHT_PROTOCOL_V1_APP_LIST_MAX_ENTRIES * \
+     (MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + \
+      MOONLIGHT_PROTOCOL_V1_APPLICATION_RECORD_PAYLOAD_MAX) + \
+   MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + \
+   MOONLIGHT_PROTOCOL_V1_APP_LIST_CURSOR_SIZE)
+
   /**
    * @brief Holds one validated CLIENT_HELLO request payload.
    */
@@ -135,6 +197,43 @@ extern "C" {
     uint64_t authorization_generation;  ///< Current nonzero authorization generation.
     MoonlightProtocolV1InstanceVisibility instance_visibility;  ///< Current Principal visibility policy.
   } MoonlightProtocolV1HostInfoResponse;
+
+  /**
+   * @brief Holds one validated GET_APP_LIST request payload.
+   *
+   * A zero `cursor_size` omits field 1. A zero `maximum_entries` omits field
+   * 2 and selects `MOONLIGHT_PROTOCOL_V1_APP_LIST_DEFAULT_MAX_ENTRIES`.
+   */
+  typedef struct MoonlightProtocolV1GetAppListRequest {
+    uint8_t cursor[MOONLIGHT_PROTOCOL_V1_APP_LIST_CURSOR_SIZE];  ///< Opaque prior-page cursor bytes.
+    size_t cursor_size;  ///< Cursor bytes, exactly zero or 16.
+    uint16_t maximum_entries;  ///< Zero for the default, otherwise a value in `[1, 128]`.
+  } MoonlightProtocolV1GetAppListRequest;
+
+  /**
+   * @brief Holds one validated nested GET_APP_LIST Application record.
+   */
+  typedef struct MoonlightProtocolV1ApplicationRecord {
+    uint8_t application_id[MOONLIGHT_PROTOCOL_V1_APPLICATION_ID_MAX];  ///< Canonical Application ID UTF-8 bytes.
+    size_t application_id_size;  ///< Application ID bytes in `[1, 128]`.
+    uint8_t display_name[MOONLIGHT_PROTOCOL_V1_APPLICATION_DISPLAY_NAME_MAX];  ///< Canonical display-name UTF-8 bytes.
+    size_t display_name_size;  ///< Display-name bytes in `[1, 256]`.
+    uint8_t icon_asset_sha256[MOONLIGHT_PROTOCOL_V1_APPLICATION_ICON_DIGEST_SIZE];  ///< Optional icon digest bytes.
+    size_t icon_asset_sha256_size;  ///< Icon digest bytes, exactly zero or 32.
+  } MoonlightProtocolV1ApplicationRecord;
+
+  /**
+   * @brief Holds one validated successful GET_APP_LIST response payload.
+   *
+   * The fixed arrays are wholly caller-owned. No codec call allocates,
+   * retains, or borrows storage from this structure.
+   */
+  typedef struct MoonlightProtocolV1GetAppListResponse {
+    MoonlightProtocolV1ApplicationRecord entries[MOONLIGHT_PROTOCOL_V1_APP_LIST_MAX_ENTRIES];  ///< Strictly ID-sorted records.
+    size_t entry_count;  ///< Number of records in `[0, 128]`.
+    uint8_t next_cursor[MOONLIGHT_PROTOCOL_V1_APP_LIST_CURSOR_SIZE];  ///< Opaque next-page cursor bytes.
+    size_t next_cursor_size;  ///< Cursor bytes, exactly zero or 16.
+  } MoonlightProtocolV1GetAppListResponse;
 
   /**
    * @brief Encodes one canonical CLIENT_HELLO request payload.
@@ -276,6 +375,84 @@ extern "C" {
     const uint8_t *input,
     size_t input_size,
     MoonlightProtocolV1HostInfoResponse *response
+  );
+
+  /**
+   * @brief Encodes one canonical GET_APP_LIST request payload.
+   *
+   * Optional field 1 is emitted before optional field 2. A zero
+   * `maximum_entries` preserves the canonical absent-field form rather than
+   * emitting the default value. The output and `encoded_size` are unchanged
+   * when validation fails.
+   *
+   * @param request Validated host-order request values.
+   * @param output Destination buffer, or null only for an empty request.
+   * @param output_size Available bytes in `output`.
+   * @param encoded_size Receives the encoded payload size.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1EncodeGetAppListRequest(
+    const MoonlightProtocolV1GetAppListRequest *request,
+    uint8_t *output,
+    size_t output_size,
+    size_t *encoded_size
+  );
+
+  /**
+   * @brief Decodes one complete canonical GET_APP_LIST request payload.
+   *
+   * Empty input is valid. Known fields must be unique, ordered, carry flags
+   * zero, and use their exact widths. The output is replaced only on success.
+   *
+   * @param input Complete payload bytes, or null only when `input_size` is zero.
+   * @param input_size Number of bytes in `input`.
+   * @param request Receives validated host-order values only on success.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1DecodeGetAppListRequest(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1GetAppListRequest *request
+  );
+
+  /**
+   * @brief Encodes one canonical successful GET_APP_LIST response payload.
+   *
+   * Application IDs must already be in strict lexicographic raw-byte order.
+   * Outer record fields use `REPEATED`; all nested fields and the optional
+   * next cursor use flags zero. The output and `encoded_size` are unchanged
+   * when validation fails.
+   *
+   * @param response Validated caller-owned response values.
+   * @param output Destination buffer, or null only for an empty response.
+   * @param output_size Available bytes in `output`.
+   * @param encoded_size Receives the encoded payload size.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1EncodeGetAppListResponse(
+    const MoonlightProtocolV1GetAppListResponse *response,
+    uint8_t *output,
+    size_t output_size,
+    size_t *encoded_size
+  );
+
+  /**
+   * @brief Decodes one complete canonical successful GET_APP_LIST response.
+   *
+   * The decoder owns no memory: it copies at most 128 bounded records and one
+   * cursor into `response`. It rejects noncanonical nesting, flags, UTF-8,
+   * lengths, record counts, duplicate IDs, and nonascending raw-byte ID order.
+   * The output is replaced only on success.
+   *
+   * @param input Complete payload bytes, or null only when `input_size` is zero.
+   * @param input_size Number of bytes in `input`.
+   * @param response Receives validated caller-owned values only on success.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1DecodeGetAppListResponse(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1GetAppListResponse *response
   );
 
 #ifdef __cplusplus

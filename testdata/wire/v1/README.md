@@ -9,6 +9,7 @@ representation.
 
 | Artifact | Scope | Bytes | Decoded SHA-256 |
 | --- | --- | ---: | --- |
+| `app-list-success-response.hex` | envelope and payload | 173 | `94d795a2e4dce12e6bf6db06151ce540cbd2efb0854bb916af3c51cbecca8189` |
 | `audio-data.hex` | DATAGRAM | 52 | `27d871c6068a816024a923373f84399ad5517075d550cf91bbecd0548d67b1b3` |
 | `audio-parity.hex` | DATAGRAM | 52 | `c7d7d64ad1703f7511f503f6a74c4e744571ff99962f341a1a8e69b83246e4fd` |
 | `control-coalesced.hex` | initiating stream half | 73 | `07fa4b2cfa8673eb57e2345936107dcae2c177f05cc6a6b10253a90d1bde30fd` |
@@ -35,6 +36,11 @@ data coding shard.
 preface, a `CLIENT_HELLO` request envelope, and 98 bytes of canonical TLVs.
 The reverse direction of a bidirectional lane never repeats the preface;
 response and notification artifacts therefore begin directly with `SQM1`.
+
+`app-list-success-response.hex` uses post-READY correlation
+`0x0102030405060708`. Its sorted records are `desktop` without an icon and
+`game.moon` with icon digest bytes `00..1f`; the latter display name is
+`Moon Game 🌙`. The opaque next-page cursor is `a0..af`.
 
 `host-info-success-response.hex` uses post-READY correlation
 `0x0102030405060708`, Host ID `00..0f`, display name `Sunshine 🌞`,

@@ -51,6 +51,7 @@ endfunction()
 add_library(
   moonlight-protocol-v1
   STATIC
+    catalog.c
     client_proof.c
     control.c
     media.c
