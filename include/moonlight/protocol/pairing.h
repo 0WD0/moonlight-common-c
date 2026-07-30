@@ -51,10 +51,12 @@ extern "C" {
    * @brief Defines protocol version 1 Principal ACL permission bits.
    */
   typedef enum MoonlightProtocolV1AclPermission {
+    MOONLIGHT_PROTOCOL_V1_ACL_PERMISSION_START_STREAM_SESSION = 0x01,  ///< Creates a connection-scoped Stream Session.
     MOONLIGHT_PROTOCOL_V1_ACL_PERMISSION_START_APPLICATION = 0x01,  ///< Creates an Application Instance.
     MOONLIGHT_PROTOCOL_V1_ACL_PERMISSION_ATTACH_APPLICATION = 0x02,  ///< Attaches to an ACL-visible instance.
     MOONLIGHT_PROTOCOL_V1_ACL_PERMISSION_STOP_APPLICATION = 0x04,  ///< Stops another Principal's instance.
     MOONLIGHT_PROTOCOL_V1_ACL_PERMISSION_SEND_INPUT = 0x08,  ///< Negotiates and sends Stream Session input.
+    MOONLIGHT_PROTOCOL_V1_ACL_PERMISSION_VIEW_DISPLAYS = 0x10,  ///< Reads the available Host Display catalog.
     MOONLIGHT_PROTOCOL_V1_ACL_PERMISSION_VIEW_CATALOG = 0x10,  ///< Reads the visible application catalog.
     MOONLIGHT_PROTOCOL_V1_ACL_PERMISSION_VIEW_INSTANCES = 0x20,  ///< Lists ACL-visible Application Instances.
     MOONLIGHT_PROTOCOL_V1_ACL_PERMISSION_READ_ASSET = 0x40  ///< Reads an asset from the visible catalog.

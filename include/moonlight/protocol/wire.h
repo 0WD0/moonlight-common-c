@@ -139,6 +139,7 @@ extern "C" {
     MOONLIGHT_PROTOCOL_V1_MESSAGE_GET_HOST_INFO = 0x0200,  ///< Host information request and response.
     MOONLIGHT_PROTOCOL_V1_MESSAGE_GET_APP_LIST = 0x0201,  ///< Visible application catalog request and response.
     MOONLIGHT_PROTOCOL_V1_MESSAGE_LIST_APPLICATION_INSTANCES = 0x0202,  ///< Visible live-instance request and response.
+    MOONLIGHT_PROTOCOL_V1_MESSAGE_GET_DISPLAY_LIST = 0x0203,  ///< Available Host Display catalog request and response.
     MOONLIGHT_PROTOCOL_V1_MESSAGE_START_APPLICATION = 0x0300,  ///< Application start request and response.
     MOONLIGHT_PROTOCOL_V1_MESSAGE_STOP_APPLICATION = 0x0301,  ///< Application stop request and response.
     MOONLIGHT_PROTOCOL_V1_MESSAGE_APPLICATION_STATE = 0x0302,  ///< Application lifecycle notification.

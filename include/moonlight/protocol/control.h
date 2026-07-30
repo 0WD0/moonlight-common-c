@@ -149,6 +149,58 @@ extern "C" {
    MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + \
    MOONLIGHT_PROTOCOL_V1_APP_LIST_CURSOR_SIZE)
 
+/**
+ * @brief Exact byte count of an opaque Host Display ID.
+ */
+#define MOONLIGHT_PROTOCOL_V1_DISPLAY_ID_SIZE 16u
+
+/**
+ * @brief Maximum Host Display label UTF-8 byte count.
+ */
+#define MOONLIGHT_PROTOCOL_V1_DISPLAY_LABEL_MAX 256u
+
+/**
+ * @brief Maximum Host Display count in one catalog snapshot.
+ */
+#define MOONLIGHT_PROTOCOL_V1_DISPLAY_LIST_MAX_ENTRIES 32u
+
+/**
+ * @brief Mask of every defined Host Display flag.
+ */
+#define MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_MASK UINT32_C(0x07)
+
+/**
+ * @brief Minimum canonical nested Host Display record payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_DISPLAY_RECORD_PAYLOAD_MIN \
+  (9u * MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + \
+   MOONLIGHT_PROTOCOL_V1_DISPLAY_ID_SIZE + 1u + 7u * 4u)
+
+/**
+ * @brief Maximum canonical nested Host Display record payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_DISPLAY_RECORD_PAYLOAD_MAX \
+  (MOONLIGHT_PROTOCOL_V1_DISPLAY_RECORD_PAYLOAD_MIN - 1u + \
+   MOONLIGHT_PROTOCOL_V1_DISPLAY_LABEL_MAX)
+
+/**
+ * @brief Maximum canonical successful GET_DISPLAY_LIST response payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_GET_DISPLAY_LIST_RESPONSE_PAYLOAD_MAX \
+  (MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + 8u + \
+   MOONLIGHT_PROTOCOL_V1_DISPLAY_LIST_MAX_ENTRIES * \
+     (MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + \
+      MOONLIGHT_PROTOCOL_V1_DISPLAY_RECORD_PAYLOAD_MAX))
+
+  /**
+   * @brief Defines Host Display metadata flags.
+   */
+  typedef enum MoonlightProtocolV1DisplayFlag {
+    MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_PRIMARY = 0x01,  ///< The operating system reports this as the primary display.
+    MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_HDR_ENABLED = 0x02,  ///< HDR output is currently enabled.
+    MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_METADATA_KNOWN = 0x04  ///< Geometry and refresh metadata are authoritative.
+  } MoonlightProtocolV1DisplayFlag;
+
   /**
    * @brief Holds one validated CLIENT_HELLO request payload.
    */
@@ -234,6 +286,38 @@ extern "C" {
     uint8_t next_cursor[MOONLIGHT_PROTOCOL_V1_APP_LIST_CURSOR_SIZE];  ///< Opaque next-page cursor bytes.
     size_t next_cursor_size;  ///< Cursor bytes, exactly zero or 16.
   } MoonlightProtocolV1GetAppListResponse;
+
+  /**
+   * @brief Holds one validated Host Display catalog record.
+   *
+   * `display_id` is the sole value a Client returns when selecting a display.
+   * `label` is presentation-only and MUST NOT be used as a capture selector.
+   */
+  typedef struct MoonlightProtocolV1DisplayRecord {
+    uint8_t display_id[MOONLIGHT_PROTOCOL_V1_DISPLAY_ID_SIZE];  ///< Opaque Host-scoped stable Display ID.
+    uint8_t label[MOONLIGHT_PROTOCOL_V1_DISPLAY_LABEL_MAX];  ///< Canonical human-readable UTF-8 label.
+    size_t label_size;  ///< Label bytes in `[1, 256]`.
+    uint32_t width;  ///< Current physical width in pixels, or zero when metadata is unknown.
+    uint32_t height;  ///< Current physical height in pixels, or zero when metadata is unknown.
+    uint32_t refresh_rate_numerator;  ///< Current refresh numerator, or zero when metadata is unknown.
+    uint32_t refresh_rate_denominator;  ///< Current refresh denominator, or zero when metadata is unknown.
+    int32_t origin_x;  ///< Virtual-desktop horizontal origin, or zero when metadata is unknown.
+    int32_t origin_y;  ///< Virtual-desktop vertical origin, or zero when metadata is unknown.
+    uint32_t flags;  ///< Defined `MoonlightProtocolV1DisplayFlag` bits only.
+  } MoonlightProtocolV1DisplayRecord;
+
+  /**
+   * @brief Holds one validated successful GET_DISPLAY_LIST response payload.
+   *
+   * Records are strictly ordered by raw `display_id` bytes. The revision is an
+   * opaque nonzero fingerprint of the complete snapshot and is revalidated
+   * before a selected display is used to create a Stream Session.
+   */
+  typedef struct MoonlightProtocolV1GetDisplayListResponse {
+    uint64_t catalog_revision;  ///< Nonzero opaque snapshot revision.
+    MoonlightProtocolV1DisplayRecord entries[MOONLIGHT_PROTOCOL_V1_DISPLAY_LIST_MAX_ENTRIES];  ///< Strictly ID-sorted records.
+    size_t entry_count;  ///< Number of records in `[0, 32]`.
+  } MoonlightProtocolV1GetDisplayListResponse;
 
   /**
    * @brief Encodes one canonical CLIENT_HELLO request payload.
@@ -453,6 +537,46 @@ extern "C" {
     const uint8_t *input,
     size_t input_size,
     MoonlightProtocolV1GetAppListResponse *response
+  );
+
+  /**
+   * @brief Encodes one canonical successful GET_DISPLAY_LIST response.
+   *
+   * Field 1 contains the required nonzero revision. Repeated field 2 contains
+   * records in strict raw Display-ID order. Every nested scalar is required,
+   * uses flags zero, and owns its bytes. The output and `encoded_size` are
+   * unchanged when validation fails.
+   *
+   * @param response Validated caller-owned response values.
+   * @param output Destination buffer.
+   * @param output_size Available bytes in `output`.
+   * @param encoded_size Receives the encoded payload size.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1EncodeGetDisplayListResponse(
+    const MoonlightProtocolV1GetDisplayListResponse *response,
+    uint8_t *output,
+    size_t output_size,
+    size_t *encoded_size
+  );
+
+  /**
+   * @brief Decodes one complete canonical successful GET_DISPLAY_LIST response.
+   *
+   * The decoder copies at most 32 bounded records and rejects zero revisions,
+   * invalid UTF-8, undefined metadata combinations, duplicate or unordered
+   * Display IDs, noncanonical nesting, unknown fields, and unsupported flags.
+   * The output is replaced only on success.
+   *
+   * @param input Complete payload bytes.
+   * @param input_size Number of bytes in `input`.
+   * @param response Receives validated caller-owned values only on success.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1DecodeGetDisplayListResponse(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1GetDisplayListResponse *response
   );
 
 #ifdef __cplusplus

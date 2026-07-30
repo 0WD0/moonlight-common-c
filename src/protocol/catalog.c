@@ -50,6 +50,30 @@ static void catalog_store_u16(uint8_t *output, uint16_t value) {
 }
 
 /**
+ * @brief Stores one network-order 32-bit integer.
+ *
+ * @param output Four writable bytes.
+ * @param value Host-order value.
+ */
+static void catalog_store_u32(uint8_t *output, uint32_t value) {
+  output[0] = (uint8_t) (value >> 24u);
+  output[1] = (uint8_t) (value >> 16u);
+  output[2] = (uint8_t) (value >> 8u);
+  output[3] = (uint8_t) value;
+}
+
+/**
+ * @brief Stores one network-order 64-bit integer.
+ *
+ * @param output Eight writable bytes.
+ * @param value Host-order value.
+ */
+static void catalog_store_u64(uint8_t *output, uint64_t value) {
+  catalog_store_u32(output, (uint32_t) (value >> 32u));
+  catalog_store_u32(output + 4u, (uint32_t) value);
+}
+
+/**
  * @brief Loads one network-order 16-bit integer.
  *
  * @param input Two readable bytes.
@@ -57,6 +81,30 @@ static void catalog_store_u16(uint8_t *output, uint16_t value) {
  */
 static uint16_t catalog_load_u16(const uint8_t *input) {
   return (uint16_t) (((uint16_t) input[0] << 8u) | input[1]);
+}
+
+/**
+ * @brief Loads one network-order 32-bit integer.
+ *
+ * @param input Four readable bytes.
+ * @return Host-order value.
+ */
+static uint32_t catalog_load_u32(const uint8_t *input) {
+  return ((uint32_t) input[0] << 24u) |
+         ((uint32_t) input[1] << 16u) |
+         ((uint32_t) input[2] << 8u) |
+         input[3];
+}
+
+/**
+ * @brief Loads one network-order 64-bit integer.
+ *
+ * @param input Eight readable bytes.
+ * @return Host-order value.
+ */
+static uint64_t catalog_load_u64(const uint8_t *input) {
+  return ((uint64_t) catalog_load_u32(input) << 32u) |
+         catalog_load_u32(input + 4u);
 }
 
 /**
@@ -802,6 +850,462 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeGetAppListResponse(
   }
 
   result = catalog_validate_response(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    goto cleanup;
+  }
+  *response = decoded;
+  result = MOONLIGHT_PROTOCOL_RESULT_OK;
+
+cleanup:
+  catalog_secure_clear(&decoded, sizeof(decoded));
+  return result;
+}
+
+/**
+ * @brief Tests whether an opaque Display ID is the reserved all-zero value.
+ *
+ * @param display_id Exact Display ID bytes.
+ * @return True only when every byte is zero.
+ */
+static bool catalog_display_id_is_zero(
+  const uint8_t display_id[MOONLIGHT_PROTOCOL_V1_DISPLAY_ID_SIZE]
+) {
+  size_t index;
+
+  for (index = 0; index < MOONLIGHT_PROTOCOL_V1_DISPLAY_ID_SIZE; ++index) {
+    if (display_id[index] != 0) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * @brief Validates one host-order Host Display record.
+ *
+ * @param record Candidate record.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult catalog_validate_display_record(
+  const MoonlightProtocolV1DisplayRecord *record
+) {
+  const bool metadata_known =
+    (record->flags & MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_METADATA_KNOWN) != 0;
+
+  if (catalog_display_id_is_zero(record->display_id)) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (
+    record->label_size == 0 ||
+    record->label_size > MOONLIGHT_PROTOCOL_V1_DISPLAY_LABEL_MAX ||
+    !catalog_utf8_is_valid(record->label, record->label_size)
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if ((record->flags & ~MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_MASK) != 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH;
+  }
+  if (metadata_known) {
+    if (
+      record->width == 0 ||
+      record->height == 0 ||
+      record->refresh_rate_numerator == 0 ||
+      record->refresh_rate_denominator == 0
+    ) {
+      return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+    }
+  } else if (
+    record->width != 0 ||
+    record->height != 0 ||
+    record->refresh_rate_numerator != 0 ||
+    record->refresh_rate_denominator != 0 ||
+    record->origin_x != 0 ||
+    record->origin_y != 0 ||
+    record->flags != 0
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+/**
+ * @brief Validates one host-order GET_DISPLAY_LIST response.
+ *
+ * @param response Candidate response.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult catalog_validate_display_response(
+  const MoonlightProtocolV1GetDisplayListResponse *response
+) {
+  size_t index;
+  MoonlightProtocolResult result;
+
+  if (response == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (response->catalog_revision == 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (
+    response->entry_count >
+    MOONLIGHT_PROTOCOL_V1_DISPLAY_LIST_MAX_ENTRIES
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  for (index = 0; index < response->entry_count; ++index) {
+    result = catalog_validate_display_record(&response->entries[index]);
+    if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+      return result;
+    }
+    if (
+      index != 0 &&
+      memcmp(
+        response->entries[index - 1u].display_id,
+        response->entries[index].display_id,
+        MOONLIGHT_PROTOCOL_V1_DISPLAY_ID_SIZE
+      ) >= 0
+    ) {
+      return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+    }
+  }
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+/**
+ * @brief Encodes one validated nested Host Display record.
+ *
+ * @param record Validated record.
+ * @param output Maximum-size nested-record destination.
+ * @return Number of encoded bytes.
+ */
+static size_t catalog_encode_display_record(
+  const MoonlightProtocolV1DisplayRecord *record,
+  uint8_t *output
+) {
+  uint8_t scalars[7][4];
+  size_t size = 0;
+  size_t index;
+
+  catalog_store_u32(scalars[0], record->width);
+  catalog_store_u32(scalars[1], record->height);
+  catalog_store_u32(scalars[2], record->refresh_rate_numerator);
+  catalog_store_u32(scalars[3], record->refresh_rate_denominator);
+  catalog_store_u32(scalars[4], (uint32_t) record->origin_x);
+  catalog_store_u32(scalars[5], (uint32_t) record->origin_y);
+  catalog_store_u32(scalars[6], record->flags);
+
+  size += catalog_encode_field(
+    output + size,
+    1,
+    0,
+    record->display_id,
+    sizeof(record->display_id)
+  );
+  size += catalog_encode_field(
+    output + size,
+    2,
+    0,
+    record->label,
+    record->label_size
+  );
+  for (index = 0; index < 7u; ++index) {
+    size += catalog_encode_field(
+      output + size,
+      (uint16_t) (index + 3u),
+      0,
+      scalars[index],
+      sizeof(scalars[index])
+    );
+  }
+  catalog_secure_clear(scalars, sizeof(scalars));
+  return size;
+}
+
+/**
+ * @brief Loads one two's-complement network-order signed 32-bit integer.
+ *
+ * @param input Four readable bytes.
+ * @return Host-order signed value.
+ */
+static int32_t catalog_load_i32(const uint8_t *input) {
+  const uint32_t encoded = catalog_load_u32(input);
+
+  if (encoded <= INT32_MAX) {
+    return (int32_t) encoded;
+  }
+  return (int32_t) (-1 - (int32_t) (UINT32_MAX - encoded));
+}
+
+/**
+ * @brief Decodes one complete nested Host Display record.
+ *
+ * @param input Complete nested record bytes.
+ * @param input_size Number of nested bytes.
+ * @param record Receives validated owned values only on success.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult catalog_decode_display_record(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1DisplayRecord *record
+) {
+  MoonlightProtocolV1DisplayRecord decoded;
+  MoonlightProtocolV1TlvField field;
+  const uint8_t *value;
+  size_t offset = 0;
+  uint16_t expected_id;
+  MoonlightProtocolResult result;
+
+  memset(&decoded, 0, sizeof(decoded));
+  for (expected_id = 1; expected_id <= 9u; ++expected_id) {
+    if (offset == input_size) {
+      result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+      goto cleanup;
+    }
+    result = catalog_decode_field(
+      input,
+      input_size,
+      &offset,
+      &field,
+      &value
+    );
+    if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+      goto cleanup;
+    }
+    if (field.field_id != expected_id) {
+      result = catalog_classify_unexpected_id(field.field_id, 9u);
+      goto cleanup;
+    }
+    if (field.flags != 0) {
+      result = MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+      goto cleanup;
+    }
+
+    if (expected_id == 1u) {
+      if (field.field_length != MOONLIGHT_PROTOCOL_V1_DISPLAY_ID_SIZE) {
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
+      }
+      memcpy(decoded.display_id, value, sizeof(decoded.display_id));
+    } else if (expected_id == 2u) {
+      if (field.field_length > sizeof(decoded.label)) {
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
+      }
+      memcpy(decoded.label, value, field.field_length);
+      decoded.label_size = field.field_length;
+    } else {
+      if (field.field_length != 4u) {
+        result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+        goto cleanup;
+      }
+      if (expected_id == 3u) {
+        decoded.width = catalog_load_u32(value);
+      } else if (expected_id == 4u) {
+        decoded.height = catalog_load_u32(value);
+      } else if (expected_id == 5u) {
+        decoded.refresh_rate_numerator = catalog_load_u32(value);
+      } else if (expected_id == 6u) {
+        decoded.refresh_rate_denominator = catalog_load_u32(value);
+      } else if (expected_id == 7u) {
+        decoded.origin_x = catalog_load_i32(value);
+      } else if (expected_id == 8u) {
+        decoded.origin_y = catalog_load_i32(value);
+      } else {
+        decoded.flags = catalog_load_u32(value);
+      }
+    }
+  }
+  if (offset != input_size) {
+    result = catalog_decode_field(
+      input,
+      input_size,
+      &offset,
+      &field,
+      &value
+    );
+    if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+      goto cleanup;
+    }
+    result = catalog_classify_unexpected_id(field.field_id, 9u);
+    goto cleanup;
+  }
+  if (
+    (decoded.flags & ~MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_MASK) != 0
+  ) {
+    result = MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+    goto cleanup;
+  }
+  result = catalog_validate_display_record(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    goto cleanup;
+  }
+  *record = decoded;
+  result = MOONLIGHT_PROTOCOL_RESULT_OK;
+
+cleanup:
+  catalog_secure_clear(&decoded, sizeof(decoded));
+  return result;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1EncodeGetDisplayListResponse(
+  const MoonlightProtocolV1GetDisplayListResponse *response,
+  uint8_t *output,
+  size_t output_size,
+  size_t *encoded_size
+) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_GET_DISPLAY_LIST_RESPONSE_PAYLOAD_MAX];
+  uint8_t record[MOONLIGHT_PROTOCOL_V1_DISPLAY_RECORD_PAYLOAD_MAX];
+  uint8_t revision[8];
+  size_t size = 0;
+  size_t index;
+  MoonlightProtocolResult result;
+
+  if (encoded_size == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = catalog_validate_display_response(response);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  catalog_store_u64(revision, response->catalog_revision);
+  size += catalog_encode_field(
+    encoded + size,
+    1,
+    0,
+    revision,
+    sizeof(revision)
+  );
+  for (index = 0; index < response->entry_count; ++index) {
+    const size_t record_size = catalog_encode_display_record(
+      &response->entries[index],
+      record
+    );
+
+    size += catalog_encode_field(
+      encoded + size,
+      2,
+      MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED,
+      record,
+      record_size
+    );
+  }
+  if (output == NULL) {
+    result = MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+    goto cleanup;
+  }
+  if (output_size < size) {
+    result = MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+    goto cleanup;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  result = MOONLIGHT_PROTOCOL_RESULT_OK;
+
+cleanup:
+  catalog_secure_clear(revision, sizeof(revision));
+  catalog_secure_clear(record, sizeof(record));
+  catalog_secure_clear(encoded, sizeof(encoded));
+  return result;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodeGetDisplayListResponse(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1GetDisplayListResponse *response
+) {
+  MoonlightProtocolV1GetDisplayListResponse decoded;
+  MoonlightProtocolV1TlvField field;
+  const uint8_t *value;
+  size_t offset = 0;
+  MoonlightProtocolResult result;
+
+  if (response == NULL || (input == NULL && input_size != 0)) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    input_size >
+    MOONLIGHT_PROTOCOL_V1_GET_DISPLAY_LIST_RESPONSE_PAYLOAD_MAX
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (input_size < MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + 8u) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  result = catalog_decode_field(
+    input,
+    input_size,
+    &offset,
+    &field,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    goto cleanup;
+  }
+  if (field.field_id != 1u) {
+    result = catalog_classify_unexpected_id(field.field_id, 2u);
+    goto cleanup;
+  }
+  if (field.flags != 0) {
+    result = MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+    goto cleanup;
+  }
+  if (field.field_length != 8u) {
+    result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+    goto cleanup;
+  }
+  decoded.catalog_revision = catalog_load_u64(value);
+
+  while (offset != input_size) {
+    result = catalog_decode_field(
+      input,
+      input_size,
+      &offset,
+      &field,
+      &value
+    );
+    if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+      goto cleanup;
+    }
+    if (field.field_id != 2u) {
+      result = catalog_classify_unexpected_id(field.field_id, 2u);
+      goto cleanup;
+    }
+    if (field.flags != MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED) {
+      result = MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+      goto cleanup;
+    }
+    if (
+      decoded.entry_count >=
+      MOONLIGHT_PROTOCOL_V1_DISPLAY_LIST_MAX_ENTRIES
+    ) {
+      result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+      goto cleanup;
+    }
+    if (
+      field.field_length <
+        MOONLIGHT_PROTOCOL_V1_DISPLAY_RECORD_PAYLOAD_MIN ||
+      field.field_length >
+        MOONLIGHT_PROTOCOL_V1_DISPLAY_RECORD_PAYLOAD_MAX
+    ) {
+      result = MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+      goto cleanup;
+    }
+    result = catalog_decode_display_record(
+      value,
+      field.field_length,
+      &decoded.entries[decoded.entry_count]
+    );
+    if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+      goto cleanup;
+    }
+    ++decoded.entry_count;
+  }
+
+  result = catalog_validate_display_response(&decoded);
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
     goto cleanup;
   }
