@@ -182,6 +182,29 @@ add_test(
   COMMAND test_moonlight_protocol_v1_session
 )
 
+add_executable(test_moonlight_protocol_v1_input test_input.c)
+
+set_target_properties(
+  test_moonlight_protocol_v1_input
+  PROPERTIES
+    C_EXTENSIONS OFF
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+)
+
+target_link_libraries(
+  test_moonlight_protocol_v1_input
+  PRIVATE
+    moonlight::protocol-v1
+)
+
+moonlight_protocol_v1_apply_warnings(test_moonlight_protocol_v1_input)
+
+add_test(
+  NAME moonlight-protocol-v1.input.native
+  COMMAND test_moonlight_protocol_v1_input
+)
+
 add_executable(test_moonlight_protocol_v1_client_proof test_client_proof.c)
 
 set_target_properties(

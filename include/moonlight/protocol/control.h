@@ -62,6 +62,18 @@ extern "C" {
  */
 #define MOONLIGHT_PROTOCOL_V1_CAPABILITY_MASK UINT64_C(0x3f)
 
+  /**
+   * @brief Defines protocol version 1 capability bits exchanged by CLIENT_HELLO.
+   */
+  typedef enum MoonlightProtocolV1Capability {
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_ADAPTIVE_VIDEO_TARGET = 1u << 0u,  ///< Adaptive encoder target notifications.
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_REALTIME_INPUT_DATAGRAM = 1u << 1u,  ///< Reliable touch edges plus real-time input state.
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_MULTI_CLIENT_SESSIONS = 1u << 2u,  ///< Concurrent independent Stream Sessions.
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_BULK_ASSET_LANE = 1u << 3u,  ///< Dedicated bounded Bulk transfer lanes.
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_REFERENCE_FRAME_INVALIDATION = 1u << 4u,  ///< Video reference-frame invalidation recovery.
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_DYNAMIC_MEDIA_CONFIG = 1u << 5u  ///< In-session Media Epoch reconfiguration.
+  } MoonlightProtocolV1Capability;
+
 /**
  * @brief Maximum Host display-name UTF-8 byte count.
  */

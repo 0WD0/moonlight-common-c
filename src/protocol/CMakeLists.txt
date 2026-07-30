@@ -54,6 +54,7 @@ add_library(
     catalog.c
     client_proof.c
     control.c
+    input.c
     media.c
     pairing.c
     session.c
