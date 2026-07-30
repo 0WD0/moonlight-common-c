@@ -56,6 +56,7 @@ add_library(
     control.c
     media.c
     pairing.c
+    session.c
     wire.c
 )
 add_library(moonlight::protocol-v1 ALIAS moonlight-protocol-v1)
