@@ -105,7 +105,27 @@ extern "C" {
 /**
  * @brief Exact canonical SESSION_READY request payload size.
  */
-#define MOONLIGHT_PROTOCOL_V1_SESSION_READY_REQUEST_PAYLOAD_SIZE 68u
+#define MOONLIGHT_PROTOCOL_V1_SESSION_READY_REQUEST_PAYLOAD_SIZE 80u
+
+/**
+ * @brief Smallest accepted complete Video access unit in bytes.
+ */
+#define MOONLIGHT_PROTOCOL_V1_VIDEO_ACCESS_UNIT_MIN 65536u
+
+/**
+ * @brief Largest accepted complete Video access unit in bytes.
+ */
+#define MOONLIGHT_PROTOCOL_V1_VIDEO_ACCESS_UNIT_MAX 33554432u
+
+/**
+ * @brief Exact canonical REQUEST_IDR request payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_REQUEST_IDR_REQUEST_PAYLOAD_SIZE 45u
+
+/**
+ * @brief Exact canonical successful REQUEST_IDR response payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_REQUEST_IDR_RESPONSE_PAYLOAD_SIZE 9u
 
   /**
    * @brief Defines the protocol version 1 Video codec registry.
@@ -203,7 +223,36 @@ extern "C" {
     uint32_t media_epoch;  ///< Initial Media Epoch, exactly one.
     uint16_t complete_datagram;  ///< Client-selected complete-DATAGRAM limit.
     uint16_t video_shard;  ///< Client-selected exact Video coding-shard size.
+    uint32_t maximum_video_access_unit_bytes;  ///< Client-owned complete Video access-unit ceiling.
   } MoonlightProtocolV1SessionReadyRequest;
+
+  /**
+   * @brief Defines protocol version 1 Video repair selection values.
+   */
+  typedef enum MoonlightProtocolV1VideoRepair {
+    MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_IDR = 1,  ///< Independent decoder refresh frame.
+    MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_REFERENCE_INVALIDATION = 2  ///< Reference-frame invalidation.
+  } MoonlightProtocolV1VideoRepair;
+
+  /**
+   * @brief Holds one REQUEST_IDR request for an active Stream Session.
+   *
+   * A zero highest-complete frame means that no frame in the current Media
+   * Epoch has been accepted by the decoder. Nonzero values are bounded to the
+   * protocol's positive 31-bit Video frame-ID range.
+   */
+  typedef struct MoonlightProtocolV1RequestIdrRequest {
+    uint8_t session_id[MOONLIGHT_PROTOCOL_V1_SESSION_ID_SIZE];  ///< Nonzero active Stream Session UUID.
+    uint32_t highest_complete_video_frame;  ///< Zero or latest decoder-accepted frame ID.
+    MoonlightProtocolV1VideoRepair preferred_repair;  ///< Client-preferred repair operation.
+  } MoonlightProtocolV1RequestIdrRequest;
+
+  /**
+   * @brief Holds one successful REQUEST_IDR response.
+   */
+  typedef struct MoonlightProtocolV1RequestIdrResponse {
+    MoonlightProtocolV1VideoRepair selected_repair;  ///< Host-selected repair operation.
+  } MoonlightProtocolV1RequestIdrResponse;
 
   /**
    * @brief Encodes one canonical direct-display START_SESSION request.
@@ -310,6 +359,76 @@ extern "C" {
     const uint8_t *input,
     size_t input_size,
     MoonlightProtocolV1SessionReadyRequest *request
+  );
+
+  /**
+   * @brief Encodes one canonical REQUEST_IDR request.
+   *
+   * The output buffer and `encoded_size` remain unchanged on failure.
+   *
+   * @param request Validated host-order request.
+   * @param output Destination buffer.
+   * @param output_size Available bytes in `output`.
+   * @param encoded_size Receives the encoded payload size.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1EncodeRequestIdrRequest(
+    const MoonlightProtocolV1RequestIdrRequest *request,
+    uint8_t *output,
+    size_t output_size,
+    size_t *encoded_size
+  );
+
+  /**
+   * @brief Decodes one complete canonical REQUEST_IDR request.
+   *
+   * `request` remains unchanged on failure. The transaction layer validates
+   * the Stream Session identifier against its exact active runtime and decides
+   * which defined repair operation is currently supported.
+   *
+   * @param input Complete request payload.
+   * @param input_size Number of bytes in `input`.
+   * @param request Receives validated host-order values only on success.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1DecodeRequestIdrRequest(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1RequestIdrRequest *request
+  );
+
+  /**
+   * @brief Encodes one canonical successful REQUEST_IDR response.
+   *
+   * The output buffer and `encoded_size` remain unchanged on failure.
+   *
+   * @param response Validated host-order response.
+   * @param output Destination buffer.
+   * @param output_size Available bytes in `output`.
+   * @param encoded_size Receives the encoded payload size.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1EncodeRequestIdrResponse(
+    const MoonlightProtocolV1RequestIdrResponse *response,
+    uint8_t *output,
+    size_t output_size,
+    size_t *encoded_size
+  );
+
+  /**
+   * @brief Decodes one complete canonical successful REQUEST_IDR response.
+   *
+   * `response` remains unchanged on failure.
+   *
+   * @param input Complete response payload.
+   * @param input_size Number of bytes in `input`.
+   * @param response Receives the validated Host selection only on success.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1DecodeRequestIdrResponse(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1RequestIdrResponse *response
   );
 
 #ifdef __cplusplus

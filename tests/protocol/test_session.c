@@ -467,6 +467,18 @@ static const uint8_t ready_request_golden[] = {
   0x02,
   0x04,
   0x80,
+  0x00,
+  0x06,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x04,
+  0x00,
+  0x80,
+  0x00,
+  0x00,
 };
 
 /**
@@ -588,8 +600,25 @@ static MoonlightProtocolV1SessionReadyRequest valid_ready_request(void) {
     .media_epoch = MOONLIGHT_PROTOCOL_V1_INITIAL_MEDIA_EPOCH,
     .complete_datagram = 1200,
     .video_shard = 1152,
+    .maximum_video_access_unit_bytes = 8u * 1024u * 1024u,
   };
 
+  return request;
+}
+
+/**
+ * @brief Builds one valid IDR-only refresh request.
+ *
+ * @return Valid active-session refresh request.
+ */
+static MoonlightProtocolV1RequestIdrRequest valid_request_idr_request(void) {
+  const MoonlightProtocolV1SessionReadyRequest ready = valid_ready_request();
+  MoonlightProtocolV1RequestIdrRequest request = {
+    .highest_complete_video_frame = 17u,
+    .preferred_repair = MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_IDR,
+  };
+
+  memcpy(request.session_id, ready.session_id, sizeof(request.session_id));
   return request;
 }
 
@@ -960,6 +989,10 @@ static bool test_goldens(void) {
   TEST_CHECK(decoded_ready.media_epoch == ready.media_epoch);
   TEST_CHECK(decoded_ready.complete_datagram == ready.complete_datagram);
   TEST_CHECK(decoded_ready.video_shard == ready.video_shard);
+  TEST_CHECK(
+    decoded_ready.maximum_video_access_unit_bytes ==
+    ready.maximum_video_access_unit_bytes
+  );
   return true;
 }
 
@@ -1061,6 +1094,8 @@ static bool test_round_trip_bounds(void) {
 
   ready.complete_datagram = MOONLIGHT_PROTOCOL_V1_SESSION_DATAGRAM_MIN;
   ready.video_shard = MOONLIGHT_PROTOCOL_V1_SESSION_VIDEO_SHARD_MIN;
+  ready.maximum_video_access_unit_bytes =
+    MOONLIGHT_PROTOCOL_V1_VIDEO_ACCESS_UNIT_MIN;
   TEST_CHECK(encode_ready_request(&ready, ready_encoded, &encoded_size));
   TEST_RESULT(
     MoonlightProtocolV1DecodeSessionReadyRequest(
@@ -1077,6 +1112,10 @@ static bool test_round_trip_bounds(void) {
   TEST_CHECK(
     decoded_ready.video_shard ==
     MOONLIGHT_PROTOCOL_V1_SESSION_VIDEO_SHARD_MIN
+  );
+  TEST_CHECK(
+    decoded_ready.maximum_video_access_unit_bytes ==
+    MOONLIGHT_PROTOCOL_V1_VIDEO_ACCESS_UNIT_MIN
   );
   return true;
 }
@@ -1578,6 +1617,29 @@ static bool test_ready_encode_rejections(void) {
   request = valid_ready_request();
   request.complete_datagram = 552;
   request.video_shard = 528;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeSessionReadyRequest(
+      &request,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  request = valid_ready_request();
+  request.maximum_video_access_unit_bytes =
+    MOONLIGHT_PROTOCOL_V1_VIDEO_ACCESS_UNIT_MIN - 1u;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeSessionReadyRequest(
+      &request,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  request.maximum_video_access_unit_bytes =
+    MOONLIGHT_PROTOCOL_V1_VIDEO_ACCESS_UNIT_MAX + 1u;
   TEST_RESULT(
     MoonlightProtocolV1EncodeSessionReadyRequest(
       &request,
@@ -2212,7 +2274,7 @@ static bool test_start_response_decode_rejections(void) {
 static bool test_ready_decode_rejections(void) {
   MoonlightProtocolV1SessionReadyRequest output;
   uint8_t mutated[sizeof(ready_request_golden)];
-  size_t offsets[5];
+  size_t offsets[6];
   size_t offset = 0;
   size_t index;
 
@@ -2247,13 +2309,13 @@ static bool test_ready_decode_rejections(void) {
     )
   );
 
-  for (index = 0; index < 5u; ++index) {
+  for (index = 0; index < 6u; ++index) {
     offsets[index] = offset;
     offset +=
       MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE +
       test_load_u32(ready_request_golden + offset + 4u);
   }
-  for (index = 0; index < 5u; ++index) {
+  for (index = 0; index < 6u; ++index) {
     memcpy(mutated, ready_request_golden, sizeof(mutated));
     test_store_u16(mutated + offsets[index], 1u);
     if (index == 0) {
@@ -2268,7 +2330,7 @@ static bool test_ready_decode_rejections(void) {
     );
   }
   memcpy(mutated, ready_request_golden, sizeof(mutated));
-  test_store_u16(mutated, 6u);
+  test_store_u16(mutated, 7u);
   TEST_CHECK(
     ready_request_decode_rejects(
       mutated,
@@ -2340,6 +2402,396 @@ static bool test_ready_decode_rejections(void) {
       MOONLIGHT_PROTOCOL_RESULT_MALFORMED
     )
   );
+  memcpy(mutated, ready_request_golden, sizeof(mutated));
+  test_store_u32(
+    mutated + offsets[5] + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE,
+    MOONLIGHT_PROTOCOL_V1_VIDEO_ACCESS_UNIT_MIN - 1u
+  );
+  TEST_CHECK(
+    ready_request_decode_rejects(
+      mutated,
+      sizeof(mutated),
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  memcpy(mutated, ready_request_golden, sizeof(mutated));
+  test_store_u32(
+    mutated + offsets[5] + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE,
+    MOONLIGHT_PROTOCOL_V1_VIDEO_ACCESS_UNIT_MAX + 1u
+  );
+  TEST_CHECK(
+    ready_request_decode_rejects(
+      mutated,
+      sizeof(mutated),
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  return true;
+}
+
+/**
+ * @brief Verifies strict REQUEST_IDR request and response coding.
+ *
+ * @return True on success.
+ */
+static bool test_request_idr_codec(void) {
+  MoonlightProtocolV1RequestIdrRequest request =
+    valid_request_idr_request();
+  MoonlightProtocolV1RequestIdrRequest decoded_request;
+  MoonlightProtocolV1RequestIdrResponse response = {
+    .selected_repair = MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_IDR,
+  };
+  MoonlightProtocolV1RequestIdrResponse decoded_response;
+  MoonlightProtocolV1RequestIdrRequest unchanged_request;
+  MoonlightProtocolV1RequestIdrResponse unchanged_response;
+  uint8_t request_bytes[MOONLIGHT_PROTOCOL_V1_REQUEST_IDR_REQUEST_PAYLOAD_SIZE];
+  uint8_t response_bytes[MOONLIGHT_PROTOCOL_V1_REQUEST_IDR_RESPONSE_PAYLOAD_SIZE];
+  uint8_t unchanged_request_bytes[sizeof(request_bytes)];
+  uint8_t unchanged_response_bytes[sizeof(response_bytes)];
+  uint8_t mutated[MOONLIGHT_PROTOCOL_V1_REQUEST_IDR_REQUEST_PAYLOAD_SIZE];
+  size_t encoded_size = 777u;
+
+  memset(request_bytes, 0xa5, sizeof(request_bytes));
+  memset(response_bytes, 0x5a, sizeof(response_bytes));
+  memcpy(unchanged_request_bytes, request_bytes, sizeof(request_bytes));
+  memcpy(unchanged_response_bytes, response_bytes, sizeof(response_bytes));
+  memset(&decoded_request, 0x3c, sizeof(decoded_request));
+  memset(&decoded_response, 0xc3, sizeof(decoded_response));
+  unchanged_request = decoded_request;
+  unchanged_response = decoded_response;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrRequest(
+      NULL,
+      request_bytes,
+      sizeof(request_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrRequest(
+      &request,
+      NULL,
+      sizeof(request_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrRequest(
+      &request,
+      request_bytes,
+      sizeof(request_bytes),
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrRequest(
+      NULL,
+      sizeof(request_bytes),
+      &decoded_request
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrRequest(
+      request_bytes,
+      sizeof(request_bytes),
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrResponse(
+      NULL,
+      response_bytes,
+      sizeof(response_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrResponse(
+      &response,
+      NULL,
+      sizeof(response_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrResponse(
+      &response,
+      response_bytes,
+      sizeof(response_bytes),
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrResponse(
+      NULL,
+      sizeof(response_bytes),
+      &decoded_response
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrResponse(
+      response_bytes,
+      sizeof(response_bytes),
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_CHECK(encoded_size == 777u);
+  TEST_CHECK(
+    memcmp(request_bytes, unchanged_request_bytes, sizeof(request_bytes)) == 0
+  );
+  TEST_CHECK(
+    memcmp(response_bytes, unchanged_response_bytes, sizeof(response_bytes)) == 0
+  );
+  TEST_CHECK(
+    memcmp(&decoded_request, &unchanged_request, sizeof(decoded_request)) == 0
+  );
+  TEST_CHECK(
+    memcmp(&decoded_response, &unchanged_response, sizeof(decoded_response)) ==
+    0
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrRequest(
+      &request,
+      request_bytes,
+      sizeof(request_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(encoded_size == sizeof(request_bytes));
+  TEST_CHECK(test_load_u16(request_bytes) == 1u);
+  TEST_CHECK(test_load_u32(request_bytes + 4u) == 16u);
+  TEST_CHECK(test_load_u16(request_bytes + 24u) == 2u);
+  TEST_CHECK(test_load_u32(request_bytes + 32u) == 17u);
+  TEST_CHECK(test_load_u16(request_bytes + 36u) == 3u);
+  TEST_CHECK(request_bytes[44] == MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_IDR);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrRequest(
+      request_bytes,
+      sizeof(request_bytes),
+      &decoded_request
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(
+    memcmp(
+      decoded_request.session_id,
+      request.session_id,
+      sizeof(request.session_id)
+    ) == 0
+  );
+  TEST_CHECK(decoded_request.highest_complete_video_frame == 17u);
+  TEST_CHECK(
+    decoded_request.preferred_repair ==
+    MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_IDR
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrResponse(
+      &response,
+      response_bytes,
+      sizeof(response_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(encoded_size == sizeof(response_bytes));
+  TEST_CHECK(test_load_u16(response_bytes) == 1u);
+  TEST_CHECK(test_load_u32(response_bytes + 4u) == 1u);
+  TEST_CHECK(response_bytes[8] == MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_IDR);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrResponse(
+      response_bytes,
+      sizeof(response_bytes),
+      &decoded_response
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(
+    decoded_response.selected_repair ==
+    MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_IDR
+  );
+
+  request.highest_complete_video_frame = INT32_MAX;
+  request.preferred_repair =
+    MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_REFERENCE_INVALIDATION;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrRequest(
+      &request,
+      request_bytes,
+      sizeof(request_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrRequest(
+      request_bytes,
+      sizeof(request_bytes),
+      &decoded_request
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(decoded_request.highest_complete_video_frame == INT32_MAX);
+  TEST_CHECK(
+    decoded_request.preferred_repair ==
+    MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_REFERENCE_INVALIDATION
+  );
+
+  request.highest_complete_video_frame = UINT32_MAX;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrRequest(
+      &request,
+      request_bytes,
+      sizeof(request_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  request = valid_request_idr_request();
+  request.preferred_repair = (MoonlightProtocolV1VideoRepair) 3;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrRequest(
+      &request,
+      request_bytes,
+      sizeof(request_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  request = valid_request_idr_request();
+  memset(request.session_id, 0, sizeof(request.session_id));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrRequest(
+      &request,
+      request_bytes,
+      sizeof(request_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  request = valid_request_idr_request();
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrRequest(
+      &request,
+      request_bytes,
+      sizeof(request_bytes) - 1u,
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrRequest(
+      &request,
+      request_bytes,
+      sizeof(request_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  memcpy(mutated, request_bytes, sizeof(mutated));
+  test_store_u32(mutated + 32u, UINT32_MAX);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrRequest(
+      mutated,
+      sizeof(mutated),
+      &decoded_request
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  memcpy(mutated, request_bytes, sizeof(mutated));
+  mutated[44] = 3u;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrRequest(
+      mutated,
+      sizeof(mutated),
+      &decoded_request
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrRequest(
+      request_bytes,
+      sizeof(request_bytes) - 1u,
+      &decoded_request
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrRequest(
+      request_bytes,
+      sizeof(request_bytes) + 1u,
+      &decoded_request
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+  );
+
+  response.selected_repair = (MoonlightProtocolV1VideoRepair) 3;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrResponse(
+      &response,
+      response_bytes,
+      sizeof(response_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  response.selected_repair = MOONLIGHT_PROTOCOL_V1_VIDEO_REPAIR_IDR;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrResponse(
+      &response,
+      response_bytes,
+      sizeof(response_bytes) - 1u,
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeRequestIdrResponse(
+      &response,
+      response_bytes,
+      sizeof(response_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  response_bytes[8] = 3u;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrResponse(
+      response_bytes,
+      sizeof(response_bytes),
+      &decoded_response
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrResponse(
+      response_bytes,
+      sizeof(response_bytes) - 1u,
+      &decoded_response
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeRequestIdrResponse(
+      response_bytes,
+      sizeof(response_bytes) + 1u,
+      &decoded_response
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+  );
   return true;
 }
 
@@ -2393,5 +2845,6 @@ int main(void) {
     "ready_decode_rejections",
     test_ready_decode_rejections
   );
+  failures += run_test("request_idr_codec", test_request_idr_codec);
   return failures == 0 ? 0 : 1;
 }
