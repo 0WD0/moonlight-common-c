@@ -1,6 +1,6 @@
 /**
  * @file catalog.c
- * @brief Implements protocol version 1 GET_APP_LIST message schemas.
+ * @brief Implements protocol version 1 Application and Host Display catalogs.
  */
 
 #include <moonlight/protocol/control.h>
@@ -937,6 +937,7 @@ static MoonlightProtocolResult catalog_validate_display_record(
 static MoonlightProtocolResult catalog_validate_display_response(
   const MoonlightProtocolV1GetDisplayListResponse *response
 ) {
+  bool saw_primary = false;
   size_t index;
   MoonlightProtocolResult result;
 
@@ -956,6 +957,15 @@ static MoonlightProtocolResult catalog_validate_display_response(
     result = catalog_validate_display_record(&response->entries[index]);
     if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
       return result;
+    }
+    if (
+      (response->entries[index].flags &
+       MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_PRIMARY) != 0
+    ) {
+      if (saw_primary) {
+        return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+      }
+      saw_primary = true;
     }
     if (
       index != 0 &&

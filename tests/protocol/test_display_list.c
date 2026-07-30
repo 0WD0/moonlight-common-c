@@ -624,6 +624,103 @@ static bool test_maximum_catalog_round_trip(void) {
 }
 
 /**
+ * @brief Verifies that a complete catalog contains at most one PRIMARY record.
+ *
+ * @return True on success.
+ */
+static bool test_primary_cardinality(void) {
+  MoonlightProtocolV1GetDisplayListResponse response;
+  MoonlightProtocolV1GetDisplayListResponse decoded;
+  uint8_t payload[MOONLIGHT_PROTOCOL_V1_GET_DISPLAY_LIST_RESPONSE_PAYLOAD_MAX];
+  uint8_t nested[MOONLIGHT_PROTOCOL_V1_DISPLAY_RECORD_PAYLOAD_MAX];
+  uint8_t revision[8];
+  size_t payload_size;
+  size_t nested_size;
+  size_t encoded_size = 0;
+  size_t index;
+
+  memset(&response, 0, sizeof(response));
+  response.catalog_revision = 1;
+  response.entries[0] = make_record(1, "Primary candidate", true);
+  response.entries[1] = make_record(2, "Secondary candidate", true);
+  response.entries[0].flags &= ~MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_PRIMARY;
+  response.entries[1].flags &= ~MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_PRIMARY;
+  response.entry_count = 2;
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeGetDisplayListResponse(
+      &response,
+      payload,
+      sizeof(payload),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeGetDisplayListResponse(
+      payload,
+      encoded_size,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+
+  response.entries[0].flags |= MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_PRIMARY;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeGetDisplayListResponse(
+      &response,
+      payload,
+      sizeof(payload),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeGetDisplayListResponse(
+      payload,
+      encoded_size,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+
+  response.entries[1].flags |= MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_PRIMARY;
+  TEST_CHECK(
+    response_encode_rejects(
+      &response,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+
+  test_store_u64(revision, response.catalog_revision);
+  payload_size = test_append_field(
+    payload,
+    1,
+    0,
+    revision,
+    sizeof(revision)
+  );
+  for (index = 0; index < response.entry_count; ++index) {
+    nested_size = test_append_nested_record(&response.entries[index], nested);
+    payload_size += test_append_field(
+      payload + payload_size,
+      2,
+      MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED,
+      nested,
+      nested_size
+    );
+  }
+  TEST_CHECK(
+    response_decode_rejects(
+      payload,
+      payload_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  return true;
+}
+
+/**
  * @brief Verifies invalid encode arguments and semantic values.
  *
  * @return True on success.
@@ -1585,6 +1682,7 @@ int main(void) {
     {"empty catalog canonical", test_empty_catalog_canonical},
     {"multiple-record round trip", test_multiple_record_round_trip},
     {"maximum catalog round trip", test_maximum_catalog_round_trip},
+    {"PRIMARY cardinality", test_primary_cardinality},
     {"encode rejections", test_encode_rejections},
     {"metadata rejections", test_metadata_rejections},
     {"UTF-8 boundaries", test_utf8_boundaries},

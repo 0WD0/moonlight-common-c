@@ -196,7 +196,7 @@ extern "C" {
    * @brief Defines Host Display metadata flags.
    */
   typedef enum MoonlightProtocolV1DisplayFlag {
-    MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_PRIMARY = 0x01,  ///< The operating system reports this as the primary display.
+    MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_PRIMARY = 0x01,  ///< The operating system reports this as the sole primary display.
     MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_HDR_ENABLED = 0x02,  ///< HDR output is currently enabled.
     MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_METADATA_KNOWN = 0x04  ///< Geometry and refresh metadata are authoritative.
   } MoonlightProtocolV1DisplayFlag;
@@ -311,7 +311,9 @@ extern "C" {
    *
    * Records are strictly ordered by raw `display_id` bytes. The revision is an
    * opaque nonzero fingerprint of the complete snapshot and is revalidated
-   * before a selected display is used to create a Stream Session.
+   * before a selected display is used to create a Stream Session. At most one
+   * record in the complete snapshot may set
+   * `MOONLIGHT_PROTOCOL_V1_DISPLAY_FLAG_PRIMARY`.
    */
   typedef struct MoonlightProtocolV1GetDisplayListResponse {
     uint64_t catalog_revision;  ///< Nonzero opaque snapshot revision.
@@ -544,8 +546,9 @@ extern "C" {
    *
    * Field 1 contains the required nonzero revision. Repeated field 2 contains
    * records in strict raw Display-ID order. Every nested scalar is required,
-   * uses flags zero, and owns its bytes. The output and `encoded_size` are
-   * unchanged when validation fails.
+   * uses flags zero, and owns its bytes. At most one record may carry the
+   * PRIMARY flag. The output and `encoded_size` are unchanged when validation
+   * fails.
    *
    * @param response Validated caller-owned response values.
    * @param output Destination buffer.
@@ -564,9 +567,9 @@ extern "C" {
    * @brief Decodes one complete canonical successful GET_DISPLAY_LIST response.
    *
    * The decoder copies at most 32 bounded records and rejects zero revisions,
-   * invalid UTF-8, undefined metadata combinations, duplicate or unordered
-   * Display IDs, noncanonical nesting, unknown fields, and unsupported flags.
-   * The output is replaced only on success.
+   * invalid UTF-8, undefined metadata combinations, multiple PRIMARY records,
+   * duplicate or unordered Display IDs, noncanonical nesting, unknown fields,
+   * and unsupported flags. The output is replaced only on success.
    *
    * @param input Complete payload bytes.
    * @param input_size Number of bytes in `input`.
