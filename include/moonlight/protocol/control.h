@@ -16,7 +16,7 @@ extern "C" {
 /**
  * @brief Exact protocol minor accepted by version 1.
  */
-#define MOONLIGHT_PROTOCOL_V1_MINOR 0u
+#define MOONLIGHT_PROTOCOL_V1_MINOR 1u
 
 /**
  * @brief Maximum encoded CLIENT_HELLO request payload.
@@ -60,7 +60,7 @@ extern "C" {
 /**
  * @brief Mask of every defined protocol version 1 capability bit.
  */
-#define MOONLIGHT_PROTOCOL_V1_CAPABILITY_MASK UINT64_C(0x3f)
+#define MOONLIGHT_PROTOCOL_V1_CAPABILITY_MASK UINT64_C(0x7f)
 
   /**
    * @brief Defines protocol version 1 capability bits exchanged by CLIENT_HELLO.
@@ -71,7 +71,8 @@ extern "C" {
     MOONLIGHT_PROTOCOL_V1_CAPABILITY_MULTI_CLIENT_SESSIONS = 1u << 2u,  ///< Concurrent independent Stream Sessions.
     MOONLIGHT_PROTOCOL_V1_CAPABILITY_BULK_ASSET_LANE = 1u << 3u,  ///< Dedicated bounded Bulk transfer lanes.
     MOONLIGHT_PROTOCOL_V1_CAPABILITY_REFERENCE_FRAME_INVALIDATION = 1u << 4u,  ///< Video reference-frame invalidation recovery.
-    MOONLIGHT_PROTOCOL_V1_CAPABILITY_DYNAMIC_MEDIA_CONFIG = 1u << 5u  ///< In-session Media Epoch reconfiguration.
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_DYNAMIC_MEDIA_CONFIG = 1u << 5u,  ///< In-session Media Epoch reconfiguration.
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_AUDIO_DATAGRAM = 1u << 6u  ///< Fixed low-latency Opus Audio DATAGRAM profile.
   } MoonlightProtocolV1Capability;
 
 /**
@@ -217,7 +218,7 @@ extern "C" {
    * @brief Holds one validated CLIENT_HELLO request payload.
    */
   typedef struct MoonlightProtocolV1ClientHelloRequest {
-    uint16_t protocol_minor;  ///< Exact protocol minor, currently zero.
+    uint16_t protocol_minor;  ///< Exact protocol minor, currently one.
     uint64_t capability_bits;  ///< Defined Client feature bits.
     uint8_t software_version[MOONLIGHT_PROTOCOL_V1_SOFTWARE_VERSION_MAX];  ///< Canonical UTF-8 bytes.
     size_t software_version_size;  ///< Number of bytes in `software_version`.
@@ -227,7 +228,7 @@ extern "C" {
    * @brief Holds one validated CLIENT_HELLO successful-response payload.
    */
   typedef struct MoonlightProtocolV1ClientHelloResponse {
-    uint16_t protocol_minor;  ///< Exact protocol minor, currently zero.
+    uint16_t protocol_minor;  ///< Exact protocol minor, currently one.
     uint64_t capability_bits;  ///< Listener-frozen Host feature bits.
     uint8_t host_id[MOONLIGHT_PROTOCOL_V1_UUID_SIZE];  ///< Host UUID in canonical wire bytes.
     uint32_t maximum_control_payload;  ///< Listener-frozen Control payload maximum.

@@ -121,6 +121,27 @@ static const uint8_t TEST_AUDIO_PARITY_ROW[MOONLIGHT_PROTOCOL_V1_AUDIO_DATA_SHAR
   } while (0)
 
 /**
+ * @brief Verifies every fixed low-latency Opus Audio profile constant.
+ *
+ * @return True on success.
+ */
+static bool test_audio_profile_constants(void) {
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_SAMPLE_RATE_HZ == 48000u);
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_CHANNEL_COUNT == 2u);
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_STREAM_COUNT == 1u);
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_COUPLED_STREAM_COUNT == 1u);
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_FRAME_SAMPLES == 240u);
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_FRAME_DURATION_US == 5000u);
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_BITRATE_BPS == 96000u);
+  TEST_CHECK(
+    MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_FRAME_SAMPLES *
+      MOONLIGHT_PROTOCOL_V1_AUDIO_DATA_SHARDS ==
+    MOONLIGHT_PROTOCOL_V1_AUDIO_BLOCK_SAMPLES
+  );
+  return true;
+}
+
+/**
  * @brief Converts one ASCII hexadecimal digit to its integer value.
  *
  * @param character Character to convert.
@@ -2989,6 +3010,7 @@ int main(void) {
     const char *name;  ///< Human-readable test name.
     bool (*function)(void);  ///< Test function.
   } tests[] = {
+    {"fixed Audio profile", test_audio_profile_constants},
     {"video data golden", test_video_data_golden},
     {"video parity golden", test_video_parity_golden},
     {"audio data golden", test_audio_data_golden},

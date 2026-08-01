@@ -1738,7 +1738,7 @@ static bool test_exact_transcripts(void) {
   offset += 15u;
   expected_pairing[offset++] = 1u;
   expected_pairing[offset++] = 0u;
-  expected_pairing[offset++] = 0u;
+  expected_pairing[offset++] = 1u;
   memcpy(expected_pairing + offset, pairing.host_id, sizeof(pairing.host_id));
   offset += sizeof(pairing.host_id);
   memcpy(
@@ -1816,7 +1816,7 @@ static bool test_exact_transcripts(void) {
   offset += 17u;
   expected_streaming[offset++] = 1u;
   expected_streaming[offset++] = 0u;
-  expected_streaming[offset++] = 0u;
+  expected_streaming[offset++] = 1u;
   memcpy(expected_streaming + offset, streaming.host_id, sizeof(streaming.host_id));
   offset += sizeof(streaming.host_id);
   memcpy(

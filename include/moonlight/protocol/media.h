@@ -54,6 +54,44 @@ extern "C" {
 #define MOONLIGHT_PROTOCOL_V1_AUDIO_PACKET_MAX 1150u
 
 /**
+ * @brief Opus sample rate in the fixed Audio DATAGRAM profile.
+ */
+#define MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_SAMPLE_RATE_HZ 48000u
+
+/**
+ * @brief Channel count in the fixed stereo Audio DATAGRAM profile.
+ */
+#define MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_CHANNEL_COUNT 2u
+
+/**
+ * @brief Opus multistream stream count in the fixed Audio DATAGRAM profile.
+ */
+#define MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_STREAM_COUNT 1u
+
+/**
+ * @brief Opus multistream coupled-stream count in the fixed Audio DATAGRAM profile.
+ */
+#define MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_COUPLED_STREAM_COUNT 1u
+
+/**
+ * @brief PCM samples per channel in one fixed 5 ms Opus packet.
+ */
+#define MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_FRAME_SAMPLES 240u
+
+/**
+ * @brief Packet duration in microseconds for the fixed Audio DATAGRAM profile.
+ */
+#define MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_FRAME_DURATION_US 5000u
+
+/**
+ * @brief Constant Opus target bitrate in bits per second.
+ *
+ * Encoders use this target in restricted-low-delay application mode with
+ * variable bitrate disabled.
+ */
+#define MOONLIGHT_PROTOCOL_V1_AUDIO_OPUS_BITRATE_BPS 96000u
+
+/**
  * @brief Maximum number of FEC blocks in one Video frame.
  */
 #define MOONLIGHT_PROTOCOL_V1_VIDEO_FEC_BLOCK_MAX 64u
