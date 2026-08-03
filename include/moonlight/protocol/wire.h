@@ -149,6 +149,9 @@ extern "C" {
     MOONLIGHT_PROTOCOL_V1_MESSAGE_SESSION_READY = 0x0321,  ///< Stream Session readiness request and response.
     MOONLIGHT_PROTOCOL_V1_MESSAGE_STOP_SESSION = 0x0322,  ///< Stream Session stop request and response.
     MOONLIGHT_PROTOCOL_V1_MESSAGE_SESSION_STATE = 0x0323,  ///< Stream Session lifecycle notification.
+    MOONLIGHT_PROTOCOL_V1_MESSAGE_PREPARE_SESSION_REPLACEMENT = 0x0324,  ///< Prepare a dormant successor Stream Session.
+    MOONLIGHT_PROTOCOL_V1_MESSAGE_COMMIT_SESSION_REPLACEMENT = 0x0325,  ///< Atomically promote a prepared successor.
+    MOONLIGHT_PROTOCOL_V1_MESSAGE_CANCEL_SESSION_REPLACEMENT = 0x0326,  ///< Release a prepared successor without effect.
     MOONLIGHT_PROTOCOL_V1_MESSAGE_MEDIA_EPOCH_PREPARE = 0x0330,  ///< Video Media Epoch proposal notification.
     MOONLIGHT_PROTOCOL_V1_MESSAGE_MEDIA_EPOCH_READY = 0x0331,  ///< Video Media Epoch readiness request and response.
     MOONLIGHT_PROTOCOL_V1_MESSAGE_REQUEST_IDR = 0x0332,  ///< Key-frame request and response.

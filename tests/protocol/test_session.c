@@ -607,6 +607,132 @@ static MoonlightProtocolV1SessionReadyRequest valid_ready_request(void) {
 }
 
 /**
+ * @brief Builds one valid replacement preparation request.
+ *
+ * @return Valid request with one successor codec preference.
+ */
+static MoonlightProtocolV1PrepareSessionReplacementRequest
+  valid_prepare_replacement_request(void) {
+  MoonlightProtocolV1PrepareSessionReplacementRequest request = {
+    .predecessor_session_id = {
+      0x21,
+      0x22,
+      0x23,
+      0x24,
+      0x25,
+      0x26,
+      0x27,
+      0x28,
+      0x29,
+      0x2a,
+      0x2b,
+      0x2c,
+      0x2d,
+      0x2e,
+      0x2f,
+      0x30,
+    },
+    .predecessor_session_wire_id = UINT32_C(0xa1b2c3d4),
+  };
+
+  request.successor = valid_start_request();
+  return request;
+}
+
+/**
+ * @brief Builds one valid successful replacement preparation response.
+ *
+ * @return Valid response with the default proposed commit lifetime.
+ */
+static MoonlightProtocolV1PrepareSessionReplacementResponse
+  valid_prepare_replacement_response(void) {
+  MoonlightProtocolV1PrepareSessionReplacementResponse response = {
+    .replacement_id = {
+      0x31,
+      0x32,
+      0x33,
+      0x34,
+      0x35,
+      0x36,
+      0x37,
+      0x38,
+      0x39,
+      0x3a,
+      0x3b,
+      0x3c,
+      0x3d,
+      0x3e,
+      0x3f,
+      0x40,
+    },
+    .commit_lifetime_milliseconds = 15000u,
+  };
+
+  response.successor = valid_start_response();
+  return response;
+}
+
+/**
+ * @brief Builds one valid replacement commit request.
+ *
+ * @return Valid request matching the test preparation records.
+ */
+static MoonlightProtocolV1CommitSessionReplacementRequest
+  valid_commit_replacement_request(void) {
+  const MoonlightProtocolV1PrepareSessionReplacementRequest prepare =
+    valid_prepare_replacement_request();
+  const MoonlightProtocolV1PrepareSessionReplacementResponse response =
+    valid_prepare_replacement_response();
+  MoonlightProtocolV1CommitSessionReplacementRequest request = {
+    .successor = valid_ready_request(),
+  };
+
+  memcpy(
+    request.replacement_id,
+    response.replacement_id,
+    sizeof(request.replacement_id)
+  );
+  memcpy(
+    request.predecessor_session_id,
+    prepare.predecessor_session_id,
+    sizeof(request.predecessor_session_id)
+  );
+  return request;
+}
+
+/**
+ * @brief Builds one valid replacement cancellation request.
+ *
+ * @return Valid request matching the test preparation records.
+ */
+static MoonlightProtocolV1CancelSessionReplacementRequest
+  valid_cancel_replacement_request(void) {
+  const MoonlightProtocolV1PrepareSessionReplacementRequest prepare =
+    valid_prepare_replacement_request();
+  const MoonlightProtocolV1PrepareSessionReplacementResponse response =
+    valid_prepare_replacement_response();
+  MoonlightProtocolV1CancelSessionReplacementRequest request;
+
+  memset(&request, 0, sizeof(request));
+  memcpy(
+    request.replacement_id,
+    response.replacement_id,
+    sizeof(request.replacement_id)
+  );
+  memcpy(
+    request.predecessor_session_id,
+    prepare.predecessor_session_id,
+    sizeof(request.predecessor_session_id)
+  );
+  memcpy(
+    request.successor_session_id,
+    response.successor.session_id,
+    sizeof(request.successor_session_id)
+  );
+  return request;
+}
+
+/**
  * @brief Builds one valid IDR-only refresh request.
  *
  * @return Valid active-session refresh request.
@@ -2796,6 +2922,1061 @@ static bool test_request_idr_codec(void) {
 }
 
 /**
+ * @brief Verifies replacement request decode rejection and output atomicity.
+ *
+ * @param input Candidate payload.
+ * @param input_size Candidate payload size.
+ * @param expected Expected codec result.
+ * @return True on success.
+ */
+static bool prepare_replacement_decode_rejects(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolResult expected
+) {
+  MoonlightProtocolV1PrepareSessionReplacementRequest output;
+  MoonlightProtocolV1PrepareSessionReplacementRequest unchanged;
+
+  memset(&output, 0xa5, sizeof(output));
+  unchanged = output;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePrepareSessionReplacementRequest(
+      input,
+      input_size,
+      &output
+    ),
+    expected
+  );
+  TEST_CHECK(memcmp(&output, &unchanged, sizeof(output)) == 0);
+  return true;
+}
+
+/**
+ * @brief Verifies replacement response decode rejection and output atomicity.
+ *
+ * @param input Candidate payload.
+ * @param input_size Candidate payload size.
+ * @param expected Expected codec result.
+ * @return True on success.
+ */
+static bool prepare_replacement_response_decode_rejects(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolResult expected
+) {
+  MoonlightProtocolV1PrepareSessionReplacementResponse output;
+  MoonlightProtocolV1PrepareSessionReplacementResponse unchanged;
+
+  memset(&output, 0xa5, sizeof(output));
+  unchanged = output;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePrepareSessionReplacementResponse(
+      input,
+      input_size,
+      &output
+    ),
+    expected
+  );
+  TEST_CHECK(memcmp(&output, &unchanged, sizeof(output)) == 0);
+  return true;
+}
+
+/**
+ * @brief Verifies replacement commit decode rejection and output atomicity.
+ *
+ * @param input Candidate payload.
+ * @param input_size Candidate payload size.
+ * @param expected Expected codec result.
+ * @return True on success.
+ */
+static bool commit_replacement_decode_rejects(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolResult expected
+) {
+  MoonlightProtocolV1CommitSessionReplacementRequest output;
+  MoonlightProtocolV1CommitSessionReplacementRequest unchanged;
+
+  memset(&output, 0xa5, sizeof(output));
+  unchanged = output;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeCommitSessionReplacementRequest(
+      input,
+      input_size,
+      &output
+    ),
+    expected
+  );
+  TEST_CHECK(memcmp(&output, &unchanged, sizeof(output)) == 0);
+  return true;
+}
+
+/**
+ * @brief Verifies replacement cancellation decode rejection and atomicity.
+ *
+ * @param input Candidate payload.
+ * @param input_size Candidate payload size.
+ * @param expected Expected codec result.
+ * @return True on success.
+ */
+static bool cancel_replacement_decode_rejects(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolResult expected
+) {
+  MoonlightProtocolV1CancelSessionReplacementRequest output;
+  MoonlightProtocolV1CancelSessionReplacementRequest unchanged;
+
+  memset(&output, 0xa5, sizeof(output));
+  unchanged = output;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeCancelSessionReplacementRequest(
+      input,
+      input_size,
+      &output
+    ),
+    expected
+  );
+  TEST_CHECK(memcmp(&output, &unchanged, sizeof(output)) == 0);
+  return true;
+}
+
+/**
+ * @brief Verifies all replacement codecs at their valid bounds.
+ *
+ * @return True on success.
+ */
+static bool test_replacement_round_trip_bounds(void) {
+  MoonlightProtocolV1PrepareSessionReplacementRequest prepare =
+    valid_prepare_replacement_request();
+  MoonlightProtocolV1PrepareSessionReplacementRequest decoded_prepare;
+  MoonlightProtocolV1PrepareSessionReplacementResponse response =
+    valid_prepare_replacement_response();
+  MoonlightProtocolV1PrepareSessionReplacementResponse decoded_response;
+  const MoonlightProtocolV1CommitSessionReplacementRequest commit =
+    valid_commit_replacement_request();
+  MoonlightProtocolV1CommitSessionReplacementRequest decoded_commit;
+  const MoonlightProtocolV1CancelSessionReplacementRequest cancel =
+    valid_cancel_replacement_request();
+  MoonlightProtocolV1CancelSessionReplacementRequest decoded_cancel;
+  uint8_t prepare_bytes[MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MAX];
+  uint8_t response_bytes[MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_RESPONSE_PAYLOAD_SIZE];
+  uint8_t commit_bytes[MOONLIGHT_PROTOCOL_V1_COMMIT_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE];
+  uint8_t cancel_bytes[MOONLIGHT_PROTOCOL_V1_CANCEL_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE];
+  size_t encoded_size = 0;
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementRequest(
+      &prepare,
+      prepare_bytes,
+      sizeof(prepare_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(
+    encoded_size ==
+    MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MIN
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePrepareSessionReplacementRequest(
+      prepare_bytes,
+      encoded_size,
+      &decoded_prepare
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(
+    memcmp(
+      decoded_prepare.predecessor_session_id,
+      prepare.predecessor_session_id,
+      sizeof(prepare.predecessor_session_id)
+    ) == 0
+  );
+  TEST_CHECK(
+    decoded_prepare.predecessor_session_wire_id ==
+    prepare.predecessor_session_wire_id
+  );
+  TEST_CHECK(
+    decoded_prepare.successor.catalog_revision ==
+    prepare.successor.catalog_revision
+  );
+
+  prepare.successor.codec_preferences[1] =
+    MOONLIGHT_PROTOCOL_V1_VIDEO_CODEC_HEVC;
+  prepare.successor.codec_preferences[2] =
+    MOONLIGHT_PROTOCOL_V1_VIDEO_CODEC_AV1;
+  prepare.successor.codec_preference_count = 3u;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementRequest(
+      &prepare,
+      prepare_bytes,
+      sizeof(prepare_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(
+    encoded_size ==
+    MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MAX
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePrepareSessionReplacementRequest(
+      prepare_bytes,
+      encoded_size,
+      &decoded_prepare
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(decoded_prepare.successor.codec_preference_count == 3u);
+
+  response.commit_lifetime_milliseconds =
+    MOONLIGHT_PROTOCOL_V1_SESSION_REPLACEMENT_LIFETIME_MIN_MS;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementResponse(
+      &response,
+      response_bytes,
+      sizeof(response_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(encoded_size == sizeof(response_bytes));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePrepareSessionReplacementResponse(
+      response_bytes,
+      encoded_size,
+      &decoded_response
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(
+    decoded_response.commit_lifetime_milliseconds ==
+    MOONLIGHT_PROTOCOL_V1_SESSION_REPLACEMENT_LIFETIME_MIN_MS
+  );
+  TEST_CHECK(
+    decoded_response.successor.session_wire_id ==
+    response.successor.session_wire_id
+  );
+  response.commit_lifetime_milliseconds =
+    MOONLIGHT_PROTOCOL_V1_SESSION_REPLACEMENT_LIFETIME_MAX_MS;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementResponse(
+      &response,
+      response_bytes,
+      sizeof(response_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeCommitSessionReplacementRequest(
+      &commit,
+      commit_bytes,
+      sizeof(commit_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(encoded_size == sizeof(commit_bytes));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeCommitSessionReplacementRequest(
+      commit_bytes,
+      encoded_size,
+      &decoded_commit
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(
+    memcmp(
+      decoded_commit.replacement_id,
+      commit.replacement_id,
+      sizeof(commit.replacement_id)
+    ) == 0
+  );
+  TEST_CHECK(
+    decoded_commit.successor.maximum_video_access_unit_bytes ==
+    commit.successor.maximum_video_access_unit_bytes
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeCancelSessionReplacementRequest(
+      &cancel,
+      cancel_bytes,
+      sizeof(cancel_bytes),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(encoded_size == sizeof(cancel_bytes));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeCancelSessionReplacementRequest(
+      cancel_bytes,
+      encoded_size,
+      &decoded_cancel
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(
+    memcmp(
+      decoded_cancel.successor_session_id,
+      cancel.successor_session_id,
+      sizeof(cancel.successor_session_id)
+    ) == 0
+  );
+  return true;
+}
+
+/**
+ * @brief Verifies replacement encoder validation and failure atomicity.
+ *
+ * @return True on success.
+ */
+static bool test_replacement_encode_rejections(void) {
+  MoonlightProtocolV1PrepareSessionReplacementRequest prepare =
+    valid_prepare_replacement_request();
+  MoonlightProtocolV1PrepareSessionReplacementResponse response =
+    valid_prepare_replacement_response();
+  MoonlightProtocolV1CommitSessionReplacementRequest commit =
+    valid_commit_replacement_request();
+  MoonlightProtocolV1CancelSessionReplacementRequest cancel =
+    valid_cancel_replacement_request();
+  uint8_t output[MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_RESPONSE_PAYLOAD_SIZE];
+  uint8_t unchanged[sizeof(output)];
+  size_t encoded_size = 777u;
+
+  memset(output, 0xa5, sizeof(output));
+  memcpy(unchanged, output, sizeof(output));
+
+#define CHECK_REPLACEMENT_ENCODER_ARGUMENTS(function_name, value, capacity) \
+  do { \
+    TEST_RESULT( \
+      (function_name) (NULL, output, (capacity), &encoded_size), \
+      MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT \
+    ); \
+    TEST_RESULT( \
+      (function_name) (&(value), NULL, (capacity), &encoded_size), \
+      MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT \
+    ); \
+    TEST_RESULT( \
+      (function_name) (&(value), output, (capacity), NULL), \
+      MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT \
+    ); \
+    TEST_RESULT( \
+      (function_name) (&(value), output, (capacity) - 1u, &encoded_size), \
+      MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL \
+    ); \
+    TEST_CHECK(encoded_size == 777u); \
+    TEST_CHECK(memcmp(output, unchanged, sizeof(output)) == 0); \
+  } while (0)
+
+  CHECK_REPLACEMENT_ENCODER_ARGUMENTS(
+    MoonlightProtocolV1EncodePrepareSessionReplacementRequest,
+    prepare,
+    MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MIN
+  );
+  CHECK_REPLACEMENT_ENCODER_ARGUMENTS(
+    MoonlightProtocolV1EncodePrepareSessionReplacementResponse,
+    response,
+    MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_RESPONSE_PAYLOAD_SIZE
+  );
+  CHECK_REPLACEMENT_ENCODER_ARGUMENTS(
+    MoonlightProtocolV1EncodeCommitSessionReplacementRequest,
+    commit,
+    MOONLIGHT_PROTOCOL_V1_COMMIT_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE
+  );
+  CHECK_REPLACEMENT_ENCODER_ARGUMENTS(
+    MoonlightProtocolV1EncodeCancelSessionReplacementRequest,
+    cancel,
+    MOONLIGHT_PROTOCOL_V1_CANCEL_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE
+  );
+
+#undef CHECK_REPLACEMENT_ENCODER_ARGUMENTS
+
+  memset(prepare.predecessor_session_id, 0, sizeof(prepare.predecessor_session_id));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementRequest(
+      &prepare,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  prepare = valid_prepare_replacement_request();
+  prepare.predecessor_session_wire_id = 0;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementRequest(
+      &prepare,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  prepare = valid_prepare_replacement_request();
+  memset(prepare.successor.display_id, 0, sizeof(prepare.successor.display_id));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementRequest(
+      &prepare,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+
+  memset(response.replacement_id, 0, sizeof(response.replacement_id));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementResponse(
+      &response,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  response = valid_prepare_replacement_response();
+  response.commit_lifetime_milliseconds =
+    MOONLIGHT_PROTOCOL_V1_SESSION_REPLACEMENT_LIFETIME_MIN_MS - 1u;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementResponse(
+      &response,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  response.commit_lifetime_milliseconds =
+    MOONLIGHT_PROTOCOL_V1_SESSION_REPLACEMENT_LIFETIME_MAX_MS + 1u;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementResponse(
+      &response,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  response = valid_prepare_replacement_response();
+  memset(response.successor.session_id, 0, sizeof(response.successor.session_id));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementResponse(
+      &response,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+
+  memset(commit.replacement_id, 0, sizeof(commit.replacement_id));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeCommitSessionReplacementRequest(
+      &commit,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  commit = valid_commit_replacement_request();
+  memset(commit.predecessor_session_id, 0, sizeof(commit.predecessor_session_id));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeCommitSessionReplacementRequest(
+      &commit,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  commit = valid_commit_replacement_request();
+  memset(commit.successor.session_id, 0, sizeof(commit.successor.session_id));
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeCommitSessionReplacementRequest(
+      &commit,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+
+#define CHECK_CANCEL_ZERO(member) \
+  do { \
+    cancel = valid_cancel_replacement_request(); \
+    memset(cancel.member, 0, sizeof(cancel.member)); \
+    TEST_RESULT( \
+      MoonlightProtocolV1EncodeCancelSessionReplacementRequest( \
+        &cancel, \
+        output, \
+        sizeof(output), \
+        &encoded_size \
+      ), \
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED \
+    ); \
+  } while (0)
+
+  CHECK_CANCEL_ZERO(replacement_id);
+  CHECK_CANCEL_ZERO(predecessor_session_id);
+  CHECK_CANCEL_ZERO(successor_session_id);
+
+#undef CHECK_CANCEL_ZERO
+
+  TEST_CHECK(encoded_size == 777u);
+  TEST_CHECK(memcmp(output, unchanged, sizeof(output)) == 0);
+  return true;
+}
+
+/**
+ * @brief Verifies strict replacement decoding and nested-schema propagation.
+ *
+ * @return True on success.
+ */
+static bool test_replacement_decode_rejections(void) {
+  const MoonlightProtocolV1PrepareSessionReplacementRequest prepare =
+    valid_prepare_replacement_request();
+  const MoonlightProtocolV1PrepareSessionReplacementResponse response =
+    valid_prepare_replacement_response();
+  const MoonlightProtocolV1CommitSessionReplacementRequest commit =
+    valid_commit_replacement_request();
+  const MoonlightProtocolV1CancelSessionReplacementRequest cancel =
+    valid_cancel_replacement_request();
+  MoonlightProtocolV1PrepareSessionReplacementRequest prepare_output;
+  MoonlightProtocolV1PrepareSessionReplacementResponse response_output;
+  MoonlightProtocolV1CommitSessionReplacementRequest commit_output;
+  MoonlightProtocolV1CancelSessionReplacementRequest cancel_output;
+  uint8_t prepare_bytes[MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MAX + 1u];
+  uint8_t response_bytes[MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_RESPONSE_PAYLOAD_SIZE + 1u];
+  uint8_t commit_bytes[MOONLIGHT_PROTOCOL_V1_COMMIT_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE + 1u];
+  uint8_t cancel_bytes[MOONLIGHT_PROTOCOL_V1_CANCEL_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE + 1u];
+  uint8_t mutated[sizeof(response_bytes)];
+  size_t prepare_size = 0;
+  size_t response_size = 0;
+  size_t commit_size = 0;
+  size_t cancel_size = 0;
+  size_t field_offset;
+  size_t value_offset;
+  size_t value_size;
+
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementRequest(
+      &prepare,
+      prepare_bytes,
+      sizeof(prepare_bytes),
+      &prepare_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePrepareSessionReplacementResponse(
+      &response,
+      response_bytes,
+      sizeof(response_bytes),
+      &response_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeCommitSessionReplacementRequest(
+      &commit,
+      commit_bytes,
+      sizeof(commit_bytes),
+      &commit_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeCancelSessionReplacementRequest(
+      &cancel,
+      cancel_bytes,
+      sizeof(cancel_bytes),
+      &cancel_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePrepareSessionReplacementRequest(
+      NULL,
+      prepare_size,
+      &prepare_output
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePrepareSessionReplacementRequest(
+      prepare_bytes,
+      prepare_size,
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      prepare_bytes,
+      prepare_size - 1u,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      prepare_bytes,
+      MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MAX +
+        1u,
+      MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+    )
+  );
+  memcpy(mutated, prepare_bytes, prepare_size);
+  test_store_u16(mutated, 2u);
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      mutated,
+      prepare_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  memcpy(mutated, prepare_bytes, prepare_size);
+  test_store_u16(mutated, 4u);
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      mutated,
+      prepare_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  memcpy(mutated, prepare_bytes, prepare_size);
+  memset(mutated + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE, 0, 16u);
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      mutated,
+      prepare_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  TEST_CHECK(
+    find_field(
+      prepare_bytes,
+      prepare_size,
+      2,
+      0,
+      &field_offset,
+      &value_offset,
+      &value_size
+    )
+  );
+  memcpy(mutated, prepare_bytes, prepare_size);
+  test_store_u16(
+    mutated + field_offset + 2u,
+    MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED
+  );
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      mutated,
+      prepare_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  TEST_CHECK(
+    find_field(
+      prepare_bytes,
+      prepare_size,
+      3,
+      0,
+      &field_offset,
+      &value_offset,
+      &value_size
+    )
+  );
+  memcpy(mutated, prepare_bytes, prepare_size);
+  test_store_u16(
+    mutated + field_offset + 2u,
+    MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED
+  );
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      mutated,
+      prepare_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  memcpy(mutated, prepare_bytes, prepare_size);
+  test_store_u16(mutated + field_offset, 2u);
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      mutated,
+      prepare_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  memcpy(mutated, prepare_bytes, prepare_size);
+  test_store_u32(mutated + field_offset + 4u, UINT32_MAX);
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      mutated,
+      prepare_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  memcpy(mutated, prepare_bytes, prepare_size);
+  test_store_u16(mutated + value_offset, 2u);
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      mutated,
+      prepare_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  memcpy(mutated, prepare_bytes, prepare_size);
+  test_store_u16(mutated + prepare_size, 4u);
+  test_store_u16(mutated + prepare_size + 2u, 0);
+  test_store_u32(mutated + prepare_size + 4u, 0);
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      mutated,
+      prepare_size + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  test_store_u16(mutated + prepare_size, 1u);
+  TEST_CHECK(
+    prepare_replacement_decode_rejects(
+      mutated,
+      prepare_size + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePrepareSessionReplacementResponse(
+      NULL,
+      response_size,
+      &response_output
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePrepareSessionReplacementResponse(
+      response_bytes,
+      response_size,
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_CHECK(
+    prepare_replacement_response_decode_rejects(
+      response_bytes,
+      response_size - 1u,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  TEST_CHECK(
+    prepare_replacement_response_decode_rejects(
+      response_bytes,
+      response_size + 1u,
+      MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+    )
+  );
+  memcpy(mutated, response_bytes, response_size);
+  test_store_u16(mutated, 2u);
+  TEST_CHECK(
+    prepare_replacement_response_decode_rejects(
+      mutated,
+      response_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  memcpy(mutated, response_bytes, response_size);
+  memset(mutated + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE, 0, 16u);
+  TEST_CHECK(
+    prepare_replacement_response_decode_rejects(
+      mutated,
+      response_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  TEST_CHECK(
+    find_field(
+      response_bytes,
+      response_size,
+      2,
+      0,
+      &field_offset,
+      &value_offset,
+      &value_size
+    )
+  );
+  memcpy(mutated, response_bytes, response_size);
+  test_store_u16(
+    mutated + field_offset + 2u,
+    MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED
+  );
+  TEST_CHECK(
+    prepare_replacement_response_decode_rejects(
+      mutated,
+      response_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  memcpy(mutated, response_bytes, response_size);
+  test_store_u16(mutated + value_offset, 2u);
+  TEST_CHECK(
+    prepare_replacement_response_decode_rejects(
+      mutated,
+      response_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  TEST_CHECK(
+    find_field(
+      response_bytes,
+      response_size,
+      3,
+      0,
+      &field_offset,
+      &value_offset,
+      &value_size
+    )
+  );
+  memcpy(mutated, response_bytes, response_size);
+  test_store_u16(
+    mutated + field_offset + 2u,
+    MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED
+  );
+  TEST_CHECK(
+    prepare_replacement_response_decode_rejects(
+      mutated,
+      response_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  memcpy(mutated, response_bytes, response_size);
+  test_store_u32(
+    mutated + value_offset,
+    MOONLIGHT_PROTOCOL_V1_SESSION_REPLACEMENT_LIFETIME_MIN_MS - 1u
+  );
+  TEST_CHECK(
+    prepare_replacement_response_decode_rejects(
+      mutated,
+      response_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeCommitSessionReplacementRequest(
+      NULL,
+      commit_size,
+      &commit_output
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeCommitSessionReplacementRequest(
+      commit_bytes,
+      commit_size,
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_CHECK(
+    commit_replacement_decode_rejects(
+      commit_bytes,
+      commit_size - 1u,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  TEST_CHECK(
+    commit_replacement_decode_rejects(
+      commit_bytes,
+      commit_size + 1u,
+      MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+    )
+  );
+  memcpy(mutated, commit_bytes, commit_size);
+  memset(mutated + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE, 0, 16u);
+  TEST_CHECK(
+    commit_replacement_decode_rejects(
+      mutated,
+      commit_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  memcpy(mutated, commit_bytes, commit_size);
+  test_store_u16(mutated + 2u, MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED);
+  TEST_CHECK(
+    commit_replacement_decode_rejects(
+      mutated,
+      commit_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  TEST_CHECK(
+    find_field(
+      commit_bytes,
+      commit_size,
+      2,
+      0,
+      &field_offset,
+      &value_offset,
+      &value_size
+    )
+  );
+  memcpy(mutated, commit_bytes, commit_size);
+  test_store_u16(
+    mutated + field_offset + 2u,
+    MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED
+  );
+  TEST_CHECK(
+    commit_replacement_decode_rejects(
+      mutated,
+      commit_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  TEST_CHECK(
+    find_field(
+      commit_bytes,
+      commit_size,
+      3,
+      0,
+      &field_offset,
+      &value_offset,
+      &value_size
+    )
+  );
+  memcpy(mutated, commit_bytes, commit_size);
+  test_store_u16(
+    mutated + field_offset + 2u,
+    MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED
+  );
+  TEST_CHECK(
+    commit_replacement_decode_rejects(
+      mutated,
+      commit_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  memcpy(mutated, commit_bytes, commit_size);
+  memset(mutated + value_offset + MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE, 0, 16u);
+  TEST_CHECK(
+    commit_replacement_decode_rejects(
+      mutated,
+      commit_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeCancelSessionReplacementRequest(
+      NULL,
+      cancel_size,
+      &cancel_output
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeCancelSessionReplacementRequest(
+      cancel_bytes,
+      cancel_size,
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_CHECK(
+    cancel_replacement_decode_rejects(
+      cancel_bytes,
+      cancel_size - 1u,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  TEST_CHECK(
+    cancel_replacement_decode_rejects(
+      cancel_bytes,
+      cancel_size + 1u,
+      MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+    )
+  );
+  memcpy(mutated, cancel_bytes, cancel_size);
+  test_store_u16(mutated, 4u);
+  TEST_CHECK(
+    cancel_replacement_decode_rejects(
+      mutated,
+      cancel_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  memcpy(mutated, cancel_bytes, cancel_size);
+  test_store_u16(mutated + 2u, MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED);
+  TEST_CHECK(
+    cancel_replacement_decode_rejects(
+      mutated,
+      cancel_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  TEST_CHECK(
+    find_field(
+      cancel_bytes,
+      cancel_size,
+      2,
+      0,
+      &field_offset,
+      &value_offset,
+      &value_size
+    )
+  );
+  memcpy(mutated, cancel_bytes, cancel_size);
+  test_store_u16(
+    mutated + field_offset + 2u,
+    MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED
+  );
+  TEST_CHECK(
+    cancel_replacement_decode_rejects(
+      mutated,
+      cancel_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  TEST_CHECK(
+    find_field(
+      cancel_bytes,
+      cancel_size,
+      3,
+      0,
+      &field_offset,
+      &value_offset,
+      &value_size
+    )
+  );
+  memcpy(mutated, cancel_bytes, cancel_size);
+  test_store_u16(
+    mutated + field_offset + 2u,
+    MOONLIGHT_PROTOCOL_V1_TLV_FLAG_REPEATED
+  );
+  TEST_CHECK(
+    cancel_replacement_decode_rejects(
+      mutated,
+      cancel_size,
+      MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+    )
+  );
+  memcpy(mutated, cancel_bytes, cancel_size);
+  memset(mutated + cancel_size - 16u, 0, 16u);
+  TEST_CHECK(
+    cancel_replacement_decode_rejects(
+      mutated,
+      cancel_size,
+      MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+    )
+  );
+  return true;
+}
+
+/**
  * @brief Runs one named boolean test.
  *
  * @param name Test name.
@@ -2846,5 +4027,17 @@ int main(void) {
     test_ready_decode_rejections
   );
   failures += run_test("request_idr_codec", test_request_idr_codec);
+  failures += run_test(
+    "replacement_round_trip_bounds",
+    test_replacement_round_trip_bounds
+  );
+  failures += run_test(
+    "replacement_encode_rejections",
+    test_replacement_encode_rejections
+  );
+  failures += run_test(
+    "replacement_decode_rejections",
+    test_replacement_decode_rejections
+  );
   return failures == 0 ? 0 : 1;
 }

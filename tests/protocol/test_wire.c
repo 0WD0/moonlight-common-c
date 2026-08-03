@@ -767,6 +767,21 @@ static bool test_fixed_headers_and_forms(void) {
   }
 
   TEST_CHECK(MoonlightProtocolV1MessageTypeIsKnown(MOONLIGHT_PROTOCOL_V1_MESSAGE_CLIENT_HELLO));
+  TEST_CHECK(
+    MoonlightProtocolV1MessageTypeIsKnown(
+      MOONLIGHT_PROTOCOL_V1_MESSAGE_PREPARE_SESSION_REPLACEMENT
+    )
+  );
+  TEST_CHECK(
+    MoonlightProtocolV1MessageTypeIsKnown(
+      MOONLIGHT_PROTOCOL_V1_MESSAGE_COMMIT_SESSION_REPLACEMENT
+    )
+  );
+  TEST_CHECK(
+    MoonlightProtocolV1MessageTypeIsKnown(
+      MOONLIGHT_PROTOCOL_V1_MESSAGE_CANCEL_SESSION_REPLACEMENT
+    )
+  );
   TEST_CHECK(MoonlightProtocolV1MessageTypeIsKnown(MOONLIGHT_PROTOCOL_V1_MESSAGE_GET_ASSET));
   TEST_CHECK(!MoonlightProtocolV1MessageTypeIsKnown(0));
   TEST_CHECK(!MoonlightProtocolV1MessageTypeIsKnown(0x00ff));

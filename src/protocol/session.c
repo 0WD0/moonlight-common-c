@@ -31,6 +31,26 @@
 #define SESSION_READY_REQUEST_FIELD_MAX 6u
 
 /**
+ * @brief Largest field ID in a PREPARE_SESSION_REPLACEMENT request.
+ */
+#define PREPARE_SESSION_REPLACEMENT_REQUEST_FIELD_MAX 3u
+
+/**
+ * @brief Largest field ID in a successful preparation response.
+ */
+#define PREPARE_SESSION_REPLACEMENT_RESPONSE_FIELD_MAX 3u
+
+/**
+ * @brief Largest field ID in a COMMIT_SESSION_REPLACEMENT request.
+ */
+#define COMMIT_SESSION_REPLACEMENT_REQUEST_FIELD_MAX 3u
+
+/**
+ * @brief Largest field ID in a CANCEL_SESSION_REPLACEMENT request.
+ */
+#define CANCEL_SESSION_REPLACEMENT_REQUEST_FIELD_MAX 3u
+
+/**
  * @brief Largest field ID in a REQUEST_IDR request.
  */
 #define REQUEST_IDR_REQUEST_FIELD_MAX 3u
@@ -457,6 +477,115 @@ static MoonlightProtocolResult session_validate_ready_request(
     request->complete_datagram,
     request->video_shard
   );
+}
+
+/**
+ * @brief Validates one replacement preparation request.
+ *
+ * @param request Candidate request.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult session_validate_prepare_replacement_request(
+  const MoonlightProtocolV1PrepareSessionReplacementRequest *request
+) {
+  if (request == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    !session_identifier_is_nonzero(
+      request->predecessor_session_id,
+      sizeof(request->predecessor_session_id)
+    ) ||
+    request->predecessor_session_wire_id == 0
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  return session_validate_start_request(&request->successor);
+}
+
+/**
+ * @brief Validates one successful replacement preparation response.
+ *
+ * @param response Candidate response.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult session_validate_prepare_replacement_response(
+  const MoonlightProtocolV1PrepareSessionReplacementResponse *response
+) {
+  if (response == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    !session_identifier_is_nonzero(
+      response->replacement_id,
+      sizeof(response->replacement_id)
+    ) ||
+    response->commit_lifetime_milliseconds <
+      MOONLIGHT_PROTOCOL_V1_SESSION_REPLACEMENT_LIFETIME_MIN_MS ||
+    response->commit_lifetime_milliseconds >
+      MOONLIGHT_PROTOCOL_V1_SESSION_REPLACEMENT_LIFETIME_MAX_MS
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  return session_validate_start_response(&response->successor);
+}
+
+/**
+ * @brief Validates one replacement commit request.
+ *
+ * @param request Candidate request.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult session_validate_commit_replacement_request(
+  const MoonlightProtocolV1CommitSessionReplacementRequest *request
+) {
+  if (request == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    !session_identifier_is_nonzero(
+      request->replacement_id,
+      sizeof(request->replacement_id)
+    ) ||
+    !session_identifier_is_nonzero(
+      request->predecessor_session_id,
+      sizeof(request->predecessor_session_id)
+    )
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  return session_validate_ready_request(&request->successor);
+}
+
+/**
+ * @brief Validates one replacement cancellation request.
+ *
+ * @param request Candidate request.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult session_validate_cancel_replacement_request(
+  const MoonlightProtocolV1CancelSessionReplacementRequest *request
+) {
+  if (request == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    !session_identifier_is_nonzero(
+      request->replacement_id,
+      sizeof(request->replacement_id)
+    ) ||
+    !session_identifier_is_nonzero(
+      request->predecessor_session_id,
+      sizeof(request->predecessor_session_id)
+    ) ||
+    !session_identifier_is_nonzero(
+      request->successor_session_id,
+      sizeof(request->successor_session_id)
+    )
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
 
 /**
@@ -1421,6 +1550,573 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeSessionReadyRequest(
   }
   decoded.maximum_video_access_unit_bytes = session_load_u32(value);
   result = session_validate_ready_request(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  *request = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult
+  MoonlightProtocolV1EncodePrepareSessionReplacementRequest(
+    const MoonlightProtocolV1PrepareSessionReplacementRequest *request,
+    uint8_t *output,
+    size_t output_size,
+    size_t *encoded_size
+  ) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MAX];
+  uint8_t nested[MOONLIGHT_PROTOCOL_V1_START_SESSION_REQUEST_PAYLOAD_MAX];
+  uint8_t scalar[4];
+  MoonlightProtocolResult result;
+  size_t nested_size = 0;
+  size_t size = 0;
+
+  if (output == NULL || encoded_size == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = session_validate_prepare_replacement_request(request);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = MoonlightProtocolV1EncodeStartSessionRequest(
+    &request->successor,
+    nested,
+    sizeof(nested),
+    &nested_size
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {  // GCOVR_EXCL_BR_LINE: validated successor fits the exact local maximum.
+    return result;  // GCOVR_EXCL_LINE
+  }
+
+  size += session_encode_field(
+    encoded + size,
+    1,
+    0,
+    request->predecessor_session_id,
+    sizeof(request->predecessor_session_id)
+  );
+  session_store_u32(scalar, request->predecessor_session_wire_id);
+  size += session_encode_field(encoded + size, 2, 0, scalar, 4u);
+  size += session_encode_field(encoded + size, 3, 0, nested, nested_size);
+
+  if (output_size < size) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult
+  MoonlightProtocolV1DecodePrepareSessionReplacementRequest(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1PrepareSessionReplacementRequest *request
+  ) {
+  MoonlightProtocolV1PrepareSessionReplacementRequest decoded;
+  const uint8_t *value;
+  size_t offset = 0;
+  MoonlightProtocolResult result;
+
+  if (input == NULL || request == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    input_size >
+    MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MAX
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (
+    input_size <
+    MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MIN
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    1,
+    PREPARE_SESSION_REPLACEMENT_REQUEST_FIELD_MAX,
+    0,
+    sizeof(decoded.predecessor_session_id),
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  memcpy(
+    decoded.predecessor_session_id,
+    value,
+    sizeof(decoded.predecessor_session_id)
+  );
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    2,
+    PREPARE_SESSION_REPLACEMENT_REQUEST_FIELD_MAX,
+    0,
+    4u,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  decoded.predecessor_session_wire_id = session_load_u32(value);
+  {
+    MoonlightProtocolV1TlvField field;
+
+    result = session_decode_field(input, input_size, &offset, &field, &value);
+    if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+      return result;
+    }
+    result = session_classify_field_id(
+      field.field_id,
+      3,
+      PREPARE_SESSION_REPLACEMENT_REQUEST_FIELD_MAX
+    );
+    if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+      return result;
+    }
+    if (field.flags != 0) {
+      return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+    }
+    result = MoonlightProtocolV1DecodeStartSessionRequest(
+      value,
+      field.field_length,
+      &decoded.successor
+    );
+    if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+      return result;
+    }
+  }
+  result = session_classify_trailing(
+    input,
+    input_size,
+    offset,
+    PREPARE_SESSION_REPLACEMENT_REQUEST_FIELD_MAX
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = session_validate_prepare_replacement_request(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  *request = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult
+  MoonlightProtocolV1EncodePrepareSessionReplacementResponse(
+    const MoonlightProtocolV1PrepareSessionReplacementResponse *response,
+    uint8_t *output,
+    size_t output_size,
+    size_t *encoded_size
+  ) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_RESPONSE_PAYLOAD_SIZE];
+  uint8_t nested[MOONLIGHT_PROTOCOL_V1_START_SESSION_RESPONSE_PAYLOAD_SIZE];
+  uint8_t scalar[4];
+  MoonlightProtocolResult result;
+  size_t nested_size = 0;
+  size_t size = 0;
+
+  if (output == NULL || encoded_size == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = session_validate_prepare_replacement_response(response);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = MoonlightProtocolV1EncodeStartSessionResponse(
+    &response->successor,
+    nested,
+    sizeof(nested),
+    &nested_size
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {  // GCOVR_EXCL_BR_LINE: validated successor fits the exact local size.
+    return result;  // GCOVR_EXCL_LINE
+  }
+
+  size += session_encode_field(
+    encoded + size,
+    1,
+    0,
+    response->replacement_id,
+    sizeof(response->replacement_id)
+  );
+  size += session_encode_field(encoded + size, 2, 0, nested, nested_size);
+  session_store_u32(scalar, response->commit_lifetime_milliseconds);
+  size += session_encode_field(encoded + size, 3, 0, scalar, 4u);
+
+  if (output_size < size) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult
+  MoonlightProtocolV1DecodePrepareSessionReplacementResponse(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1PrepareSessionReplacementResponse *response
+  ) {
+  MoonlightProtocolV1PrepareSessionReplacementResponse decoded;
+  const uint8_t *value;
+  size_t offset = 0;
+  MoonlightProtocolResult result;
+
+  if (input == NULL || response == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    input_size >
+    MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_RESPONSE_PAYLOAD_SIZE
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (
+    input_size <
+    MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_RESPONSE_PAYLOAD_SIZE
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    1,
+    PREPARE_SESSION_REPLACEMENT_RESPONSE_FIELD_MAX,
+    0,
+    sizeof(decoded.replacement_id),
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  memcpy(decoded.replacement_id, value, sizeof(decoded.replacement_id));
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    2,
+    PREPARE_SESSION_REPLACEMENT_RESPONSE_FIELD_MAX,
+    0,
+    MOONLIGHT_PROTOCOL_V1_START_SESSION_RESPONSE_PAYLOAD_SIZE,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = MoonlightProtocolV1DecodeStartSessionResponse(
+    value,
+    MOONLIGHT_PROTOCOL_V1_START_SESSION_RESPONSE_PAYLOAD_SIZE,
+    &decoded.successor
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    3,
+    PREPARE_SESSION_REPLACEMENT_RESPONSE_FIELD_MAX,
+    0,
+    4u,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  decoded.commit_lifetime_milliseconds = session_load_u32(value);
+  result = session_validate_prepare_replacement_response(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  *response = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult
+  MoonlightProtocolV1EncodeCommitSessionReplacementRequest(
+    const MoonlightProtocolV1CommitSessionReplacementRequest *request,
+    uint8_t *output,
+    size_t output_size,
+    size_t *encoded_size
+  ) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_COMMIT_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE];
+  uint8_t nested[MOONLIGHT_PROTOCOL_V1_SESSION_READY_REQUEST_PAYLOAD_SIZE];
+  MoonlightProtocolResult result;
+  size_t nested_size = 0;
+  size_t size = 0;
+
+  if (output == NULL || encoded_size == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = session_validate_commit_replacement_request(request);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = MoonlightProtocolV1EncodeSessionReadyRequest(
+    &request->successor,
+    nested,
+    sizeof(nested),
+    &nested_size
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {  // GCOVR_EXCL_BR_LINE: validated successor fits the exact local size.
+    return result;  // GCOVR_EXCL_LINE
+  }
+
+  size += session_encode_field(
+    encoded + size,
+    1,
+    0,
+    request->replacement_id,
+    sizeof(request->replacement_id)
+  );
+  size += session_encode_field(
+    encoded + size,
+    2,
+    0,
+    request->predecessor_session_id,
+    sizeof(request->predecessor_session_id)
+  );
+  size += session_encode_field(encoded + size, 3, 0, nested, nested_size);
+
+  if (output_size < size) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult
+  MoonlightProtocolV1DecodeCommitSessionReplacementRequest(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1CommitSessionReplacementRequest *request
+  ) {
+  MoonlightProtocolV1CommitSessionReplacementRequest decoded;
+  const uint8_t *value;
+  size_t offset = 0;
+  MoonlightProtocolResult result;
+
+  if (input == NULL || request == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    input_size >
+    MOONLIGHT_PROTOCOL_V1_COMMIT_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (
+    input_size <
+    MOONLIGHT_PROTOCOL_V1_COMMIT_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    1,
+    COMMIT_SESSION_REPLACEMENT_REQUEST_FIELD_MAX,
+    0,
+    sizeof(decoded.replacement_id),
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  memcpy(decoded.replacement_id, value, sizeof(decoded.replacement_id));
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    2,
+    COMMIT_SESSION_REPLACEMENT_REQUEST_FIELD_MAX,
+    0,
+    sizeof(decoded.predecessor_session_id),
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  memcpy(
+    decoded.predecessor_session_id,
+    value,
+    sizeof(decoded.predecessor_session_id)
+  );
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    3,
+    COMMIT_SESSION_REPLACEMENT_REQUEST_FIELD_MAX,
+    0,
+    MOONLIGHT_PROTOCOL_V1_SESSION_READY_REQUEST_PAYLOAD_SIZE,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = MoonlightProtocolV1DecodeSessionReadyRequest(
+    value,
+    MOONLIGHT_PROTOCOL_V1_SESSION_READY_REQUEST_PAYLOAD_SIZE,
+    &decoded.successor
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  result = session_validate_commit_replacement_request(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  *request = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult
+  MoonlightProtocolV1EncodeCancelSessionReplacementRequest(
+    const MoonlightProtocolV1CancelSessionReplacementRequest *request,
+    uint8_t *output,
+    size_t output_size,
+    size_t *encoded_size
+  ) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_CANCEL_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE];
+  MoonlightProtocolResult result;
+  size_t size = 0;
+
+  if (output == NULL || encoded_size == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = session_validate_cancel_replacement_request(request);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  size += session_encode_field(
+    encoded + size,
+    1,
+    0,
+    request->replacement_id,
+    sizeof(request->replacement_id)
+  );
+  size += session_encode_field(
+    encoded + size,
+    2,
+    0,
+    request->predecessor_session_id,
+    sizeof(request->predecessor_session_id)
+  );
+  size += session_encode_field(
+    encoded + size,
+    3,
+    0,
+    request->successor_session_id,
+    sizeof(request->successor_session_id)
+  );
+
+  if (output_size < size) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult
+  MoonlightProtocolV1DecodeCancelSessionReplacementRequest(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1CancelSessionReplacementRequest *request
+  ) {
+  MoonlightProtocolV1CancelSessionReplacementRequest decoded;
+  const uint8_t *value;
+  size_t offset = 0;
+  MoonlightProtocolResult result;
+
+  if (input == NULL || request == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    input_size >
+    MOONLIGHT_PROTOCOL_V1_CANCEL_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (
+    input_size <
+    MOONLIGHT_PROTOCOL_V1_CANCEL_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    1,
+    CANCEL_SESSION_REPLACEMENT_REQUEST_FIELD_MAX,
+    0,
+    sizeof(decoded.replacement_id),
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  memcpy(decoded.replacement_id, value, sizeof(decoded.replacement_id));
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    2,
+    CANCEL_SESSION_REPLACEMENT_REQUEST_FIELD_MAX,
+    0,
+    sizeof(decoded.predecessor_session_id),
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  memcpy(
+    decoded.predecessor_session_id,
+    value,
+    sizeof(decoded.predecessor_session_id)
+  );
+  result = session_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    3,
+    CANCEL_SESSION_REPLACEMENT_REQUEST_FIELD_MAX,
+    0,
+    sizeof(decoded.successor_session_id),
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  memcpy(
+    decoded.successor_session_id,
+    value,
+    sizeof(decoded.successor_session_id)
+  );
+  result = session_validate_cancel_replacement_request(&decoded);
   if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
     return result;
   }

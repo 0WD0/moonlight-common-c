@@ -108,6 +108,41 @@ extern "C" {
 #define MOONLIGHT_PROTOCOL_V1_SESSION_READY_REQUEST_PAYLOAD_SIZE 80u
 
 /**
+ * @brief Minimum canonical PREPARE_SESSION_REPLACEMENT request payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MIN 168u
+
+/**
+ * @brief Maximum canonical PREPARE_SESSION_REPLACEMENT request payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_REQUEST_PAYLOAD_MAX 188u
+
+/**
+ * @brief Exact canonical successful PREPARE_SESSION_REPLACEMENT response size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_PREPARE_SESSION_REPLACEMENT_RESPONSE_PAYLOAD_SIZE 262u
+
+/**
+ * @brief Exact canonical COMMIT_SESSION_REPLACEMENT request payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_COMMIT_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE 136u
+
+/**
+ * @brief Exact canonical CANCEL_SESSION_REPLACEMENT request payload size.
+ */
+#define MOONLIGHT_PROTOCOL_V1_CANCEL_SESSION_REPLACEMENT_REQUEST_PAYLOAD_SIZE 72u
+
+/**
+ * @brief Smallest Host-advertised replacement commit lifetime in milliseconds.
+ */
+#define MOONLIGHT_PROTOCOL_V1_SESSION_REPLACEMENT_LIFETIME_MIN_MS 5000u
+
+/**
+ * @brief Largest Host-advertised replacement commit lifetime in milliseconds.
+ */
+#define MOONLIGHT_PROTOCOL_V1_SESSION_REPLACEMENT_LIFETIME_MAX_MS 30000u
+
+/**
  * @brief Smallest accepted complete Video access unit in bytes.
  */
 #define MOONLIGHT_PROTOCOL_V1_VIDEO_ACCESS_UNIT_MIN 65536u
@@ -225,6 +260,53 @@ extern "C" {
     uint16_t video_shard;  ///< Client-selected exact Video coding-shard size.
     uint32_t maximum_video_access_unit_bytes;  ///< Client-owned complete Video access-unit ceiling.
   } MoonlightProtocolV1SessionReadyRequest;
+
+  /**
+   * @brief Holds one PREPARE_SESSION_REPLACEMENT request.
+   *
+   * The successor record is the exact canonical START_SESSION request schema.
+   * The transaction layer additionally requires the predecessor identifiers to
+   * name its active Stream Session and the target display to differ from it.
+   */
+  typedef struct MoonlightProtocolV1PrepareSessionReplacementRequest {
+    uint8_t predecessor_session_id[MOONLIGHT_PROTOCOL_V1_SESSION_ID_SIZE];  ///< Exact active predecessor UUID.
+    uint32_t predecessor_session_wire_id;  ///< Exact active predecessor wire identifier.
+    MoonlightProtocolV1StartSessionRequest successor;  ///< Explicit target display and requested media profile.
+  } MoonlightProtocolV1PrepareSessionReplacementRequest;
+
+  /**
+   * @brief Holds one successful PREPARE_SESSION_REPLACEMENT response.
+   *
+   * The successor record is the exact canonical START_SESSION successful
+   * response schema and therefore owns fresh session identifiers and epoch 1.
+   */
+  typedef struct MoonlightProtocolV1PrepareSessionReplacementResponse {
+    uint8_t replacement_id[MOONLIGHT_PROTOCOL_V1_SESSION_ID_SIZE];  ///< Nonzero connection-scoped replacement UUID.
+    MoonlightProtocolV1StartSessionResponse successor;  ///< Dormant successor proposal.
+    uint32_t commit_lifetime_milliseconds;  ///< Bounded relative commit lifetime.
+  } MoonlightProtocolV1PrepareSessionReplacementResponse;
+
+  /**
+   * @brief Holds one COMMIT_SESSION_REPLACEMENT request.
+   *
+   * The successor record is the exact canonical SESSION_READY request schema.
+   * The transaction layer matches all three identities to the prepared
+   * replacement before entering its irreversible commit point.
+   */
+  typedef struct MoonlightProtocolV1CommitSessionReplacementRequest {
+    uint8_t replacement_id[MOONLIGHT_PROTOCOL_V1_SESSION_ID_SIZE];  ///< Exact prepared replacement UUID.
+    uint8_t predecessor_session_id[MOONLIGHT_PROTOCOL_V1_SESSION_ID_SIZE];  ///< Exact active predecessor UUID.
+    MoonlightProtocolV1SessionReadyRequest successor;  ///< Exact successor identities and Client limits.
+  } MoonlightProtocolV1CommitSessionReplacementRequest;
+
+  /**
+   * @brief Holds one CANCEL_SESSION_REPLACEMENT request.
+   */
+  typedef struct MoonlightProtocolV1CancelSessionReplacementRequest {
+    uint8_t replacement_id[MOONLIGHT_PROTOCOL_V1_SESSION_ID_SIZE];  ///< Exact prepared replacement UUID.
+    uint8_t predecessor_session_id[MOONLIGHT_PROTOCOL_V1_SESSION_ID_SIZE];  ///< Exact active predecessor UUID.
+    uint8_t successor_session_id[MOONLIGHT_PROTOCOL_V1_SESSION_ID_SIZE];  ///< Exact dormant successor UUID.
+  } MoonlightProtocolV1CancelSessionReplacementRequest;
 
   /**
    * @brief Defines protocol version 1 Video repair selection values.
@@ -360,6 +442,150 @@ extern "C" {
     size_t input_size,
     MoonlightProtocolV1SessionReadyRequest *request
   );
+
+  /**
+   * @brief Encodes one canonical PREPARE_SESSION_REPLACEMENT request.
+   *
+   * The output buffer and `encoded_size` remain unchanged on failure.
+   *
+   * @param request Validated host-order request.
+   * @param output Destination buffer.
+   * @param output_size Available bytes in `output`.
+   * @param encoded_size Receives the encoded payload size.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult
+    MoonlightProtocolV1EncodePrepareSessionReplacementRequest(
+      const MoonlightProtocolV1PrepareSessionReplacementRequest *request,
+      uint8_t *output,
+      size_t output_size,
+      size_t *encoded_size
+    );
+
+  /**
+   * @brief Decodes one canonical PREPARE_SESSION_REPLACEMENT request.
+   *
+   * `request` remains unchanged on failure.
+   *
+   * @param input Complete request payload.
+   * @param input_size Number of bytes in `input`.
+   * @param request Receives validated host-order values only on success.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult
+    MoonlightProtocolV1DecodePrepareSessionReplacementRequest(
+      const uint8_t *input,
+      size_t input_size,
+      MoonlightProtocolV1PrepareSessionReplacementRequest *request
+    );
+
+  /**
+   * @brief Encodes one canonical successful replacement preparation response.
+   *
+   * The output buffer and `encoded_size` remain unchanged on failure.
+   *
+   * @param response Validated host-order response.
+   * @param output Destination buffer.
+   * @param output_size Available bytes in `output`.
+   * @param encoded_size Receives the encoded payload size.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult
+    MoonlightProtocolV1EncodePrepareSessionReplacementResponse(
+      const MoonlightProtocolV1PrepareSessionReplacementResponse *response,
+      uint8_t *output,
+      size_t output_size,
+      size_t *encoded_size
+    );
+
+  /**
+   * @brief Decodes one canonical successful replacement preparation response.
+   *
+   * `response` remains unchanged on failure.
+   *
+   * @param input Complete response payload.
+   * @param input_size Number of bytes in `input`.
+   * @param response Receives validated host-order values only on success.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult
+    MoonlightProtocolV1DecodePrepareSessionReplacementResponse(
+      const uint8_t *input,
+      size_t input_size,
+      MoonlightProtocolV1PrepareSessionReplacementResponse *response
+    );
+
+  /**
+   * @brief Encodes one canonical COMMIT_SESSION_REPLACEMENT request.
+   *
+   * The output buffer and `encoded_size` remain unchanged on failure.
+   *
+   * @param request Validated host-order request.
+   * @param output Destination buffer.
+   * @param output_size Available bytes in `output`.
+   * @param encoded_size Receives the encoded payload size.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult
+    MoonlightProtocolV1EncodeCommitSessionReplacementRequest(
+      const MoonlightProtocolV1CommitSessionReplacementRequest *request,
+      uint8_t *output,
+      size_t output_size,
+      size_t *encoded_size
+    );
+
+  /**
+   * @brief Decodes one canonical COMMIT_SESSION_REPLACEMENT request.
+   *
+   * `request` remains unchanged on failure.
+   *
+   * @param input Complete request payload.
+   * @param input_size Number of bytes in `input`.
+   * @param request Receives validated host-order values only on success.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult
+    MoonlightProtocolV1DecodeCommitSessionReplacementRequest(
+      const uint8_t *input,
+      size_t input_size,
+      MoonlightProtocolV1CommitSessionReplacementRequest *request
+    );
+
+  /**
+   * @brief Encodes one canonical CANCEL_SESSION_REPLACEMENT request.
+   *
+   * The output buffer and `encoded_size` remain unchanged on failure.
+   *
+   * @param request Validated host-order request.
+   * @param output Destination buffer.
+   * @param output_size Available bytes in `output`.
+   * @param encoded_size Receives the encoded payload size.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult
+    MoonlightProtocolV1EncodeCancelSessionReplacementRequest(
+      const MoonlightProtocolV1CancelSessionReplacementRequest *request,
+      uint8_t *output,
+      size_t output_size,
+      size_t *encoded_size
+    );
+
+  /**
+   * @brief Decodes one canonical CANCEL_SESSION_REPLACEMENT request.
+   *
+   * `request` remains unchanged on failure.
+   *
+   * @param input Complete request payload.
+   * @param input_size Number of bytes in `input`.
+   * @param request Receives validated host-order values only on success.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult
+    MoonlightProtocolV1DecodeCancelSessionReplacementRequest(
+      const uint8_t *input,
+      size_t input_size,
+      MoonlightProtocolV1CancelSessionReplacementRequest *request
+    );
 
   /**
    * @brief Encodes one canonical REQUEST_IDR request.
