@@ -178,7 +178,7 @@ static bool is_known_direction(MoonlightProtocolDirection direction) {
  */
 static bool is_known_channel(MoonlightProtocolV1DatagramChannel channel) {
   return channel >= MOONLIGHT_PROTOCOL_V1_CHANNEL_VIDEO_DATA &&
-         channel <= MOONLIGHT_PROTOCOL_V1_CHANNEL_MEDIA_FEEDBACK;
+         channel <= MOONLIGHT_PROTOCOL_V1_CHANNEL_MIC;
 }
 
 /**
@@ -311,7 +311,11 @@ static MoonlightProtocolResult validate_rs_context(
  * @return The required payload direction.
  */
 static MoonlightProtocolDirection direction_for_channel(MoonlightProtocolV1DatagramChannel channel) {
-  if (channel == MOONLIGHT_PROTOCOL_V1_CHANNEL_REALTIME_INPUT || channel == MOONLIGHT_PROTOCOL_V1_CHANNEL_MEDIA_FEEDBACK) {
+  if (
+    channel == MOONLIGHT_PROTOCOL_V1_CHANNEL_REALTIME_INPUT ||
+    channel == MOONLIGHT_PROTOCOL_V1_CHANNEL_MEDIA_FEEDBACK ||
+    channel == MOONLIGHT_PROTOCOL_V1_CHANNEL_MIC
+  ) {
     return MOONLIGHT_PROTOCOL_DIRECTION_CLIENT_TO_HOST;
   }
 

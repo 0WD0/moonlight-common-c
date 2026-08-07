@@ -126,7 +126,8 @@ extern "C" {
     MOONLIGHT_PROTOCOL_V1_CHANNEL_AUDIO_PARITY = 0x04,  ///< Host-to-Client Audio parity shard.
     MOONLIGHT_PROTOCOL_V1_CHANNEL_REALTIME_INPUT = 0x05,  ///< Client-to-Host real-time input.
     MOONLIGHT_PROTOCOL_V1_CHANNEL_HAPTICS_STATE = 0x06,  ///< Host-to-Client haptics or state.
-    MOONLIGHT_PROTOCOL_V1_CHANNEL_MEDIA_FEEDBACK = 0x07  ///< Client-to-Host media feedback.
+    MOONLIGHT_PROTOCOL_V1_CHANNEL_MEDIA_FEEDBACK = 0x07,  ///< Client-to-Host media feedback.
+    MOONLIGHT_PROTOCOL_V1_CHANNEL_MIC = 0x08  ///< Client-to-Host microphone audio.
   } MoonlightProtocolV1DatagramChannel;
 
   /**

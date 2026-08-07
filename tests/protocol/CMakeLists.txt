@@ -29,6 +29,29 @@ add_test(
 
 add_executable(test_moonlight_protocol_v1_wire test_wire.c)
 
+add_executable(test_moonlight_protocol_v1_mic test_mic.c)
+
+set_target_properties(
+  test_moonlight_protocol_v1_mic
+  PROPERTIES
+    C_EXTENSIONS OFF
+    C_STANDARD 11
+    C_STANDARD_REQUIRED ON
+)
+
+target_link_libraries(
+  test_moonlight_protocol_v1_mic
+  PRIVATE
+    moonlight::protocol-v1
+)
+
+moonlight_protocol_v1_apply_warnings(test_moonlight_protocol_v1_mic)
+
+add_test(
+  NAME moonlight-protocol-v1.mic
+  COMMAND test_moonlight_protocol_v1_mic
+)
+
 set_target_properties(
   test_moonlight_protocol_v1_wire
   PROPERTIES

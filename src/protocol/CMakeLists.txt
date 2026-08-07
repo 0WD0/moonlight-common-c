@@ -56,6 +56,7 @@ add_library(
     control.c
     input.c
     media.c
+    mic.c
     pairing.c
     session.c
     wire.c
