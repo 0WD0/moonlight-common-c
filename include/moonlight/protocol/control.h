@@ -60,7 +60,7 @@ extern "C" {
 /**
  * @brief Mask of every defined protocol version 1 capability bit.
  */
-#define MOONLIGHT_PROTOCOL_V1_CAPABILITY_MASK UINT64_C(0x3ff)
+#define MOONLIGHT_PROTOCOL_V1_CAPABILITY_MASK UINT64_C(0x7ff)
 
   /**
    * @brief Defines protocol version 1 capability bits exchanged by CLIENT_HELLO.
@@ -75,7 +75,8 @@ extern "C" {
     MOONLIGHT_PROTOCOL_V1_CAPABILITY_AUDIO_DATAGRAM = 1u << 6u,  ///< Fixed low-latency Opus Audio DATAGRAM profile.
     MOONLIGHT_PROTOCOL_V1_CAPABILITY_MIC_DATAGRAM = 1u << 7u,  ///< Client-to-Host microphone DATAGRAM.
     MOONLIGHT_PROTOCOL_V1_CAPABILITY_PHYSICAL_KEYBOARD = 1u << 8u,  ///< Reliable physical-keyboard HID edges.
-    MOONLIGHT_PROTOCOL_V1_CAPABILITY_POINTER_SCROLL = 1u << 9u  ///< Reliable high-resolution pointer scroll deltas.
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_POINTER_SCROLL = 1u << 9u,  ///< Reliable high-resolution pointer scroll deltas.
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_POINTER_INPUT = 1u << 10u  ///< Absolute pointer motion plus positioned buttons and scroll.
   } MoonlightProtocolV1Capability;
 
 /**

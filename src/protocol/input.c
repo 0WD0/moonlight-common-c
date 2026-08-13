@@ -260,7 +260,7 @@ static MoonlightProtocolResult input_validate_key_edge(
     edge->usage <= 0x00e7u
   ) {
     const uint8_t modifier =
-      (uint8_t)(1u << (edge->usage - 0x00e0u));
+      (uint8_t) (1u << (edge->usage - 0x00e0u));
     if (
       ((edge->modifiers & modifier) != 0u) !=
       (edge->pressed != 0u)
@@ -277,17 +277,70 @@ static MoonlightProtocolResult input_validate_key_edge(
  * @param scroll Update to validate.
  * @return The codec result.
  */
+static MoonlightProtocolResult input_validate_pointer_scroll_values(
+  uint32_t input_sequence,
+  int16_t vertical,
+  int16_t horizontal
+) {
+  if (
+    input_sequence == 0 ||
+    (vertical == 0 && horizontal == 0)
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
 static MoonlightProtocolResult input_validate_pointer_scroll(
   const MoonlightProtocolV1PointerScroll *scroll
 ) {
   if (scroll == NULL) {
     return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
   }
-  if (
-    scroll->input_sequence == 0 ||
-    (scroll->vertical == 0 && scroll->horizontal == 0)
-  ) {
+  return input_validate_pointer_scroll_values(
+    scroll->input_sequence,
+    scroll->vertical,
+    scroll->horizontal
+  );
+}
+
+static MoonlightProtocolResult input_validate_pointer_scroll_at(
+  const MoonlightProtocolV1PointerScrollAt *scroll
+) {
+  if (scroll == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  return input_validate_pointer_scroll_values(
+    scroll->input_sequence,
+    scroll->vertical,
+    scroll->horizontal
+  );
+}
+
+/**
+ * @brief Tests whether a pointer button is in the canonical registry.
+ */
+static bool input_pointer_button_is_known(
+  MoonlightProtocolV1PointerButton button
+) {
+  return button >= MOONLIGHT_PROTOCOL_V1_POINTER_BUTTON_LEFT &&
+         button <= MOONLIGHT_PROTOCOL_V1_POINTER_BUTTON_X2;
+}
+
+/**
+ * @brief Validates one caller-supplied positioned pointer-button edge.
+ */
+static MoonlightProtocolResult input_validate_pointer_button(
+  const MoonlightProtocolV1PointerButtonEdge *edge
+) {
+  if (edge == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (edge->input_sequence == 0) {
     return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (!input_pointer_button_is_known(edge->button) || edge->pressed > 1u) {
+    return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
   }
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
@@ -590,6 +643,251 @@ MoonlightProtocolResult MoonlightProtocolV1DecodePointerScrollPayload(
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
 
+MoonlightProtocolResult MoonlightProtocolV1EncodePointerButtonPayload(
+  const MoonlightProtocolV1PointerButtonEdge *edge,
+  uint8_t *output,
+  size_t output_size,
+  size_t *encoded_size
+) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_POINTER_BUTTON_PAYLOAD_SIZE];
+  uint8_t scalar[MOONLIGHT_PROTOCOL_V1_POINTER_BUTTON_BODY_SIZE];
+  MoonlightProtocolResult result;
+  size_t size = 0;
+
+  if (output == NULL || encoded_size == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = input_validate_pointer_button(edge);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  input_store_u32(scalar, edge->input_sequence);
+  size += input_encode_field(encoded + size, 1, scalar, 4u);
+  input_store_u16(
+    scalar,
+    (uint16_t) MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_POINTER_BUTTON
+  );
+  size += input_encode_field(encoded + size, 2, scalar, 2u);
+  input_store_u16(scalar, edge->x);
+  input_store_u16(scalar + 2u, edge->y);
+  scalar[4] = (uint8_t) edge->button;
+  scalar[5] = edge->pressed;
+  size += input_encode_field(
+    encoded + size,
+    3,
+    scalar,
+    MOONLIGHT_PROTOCOL_V1_POINTER_BUTTON_BODY_SIZE
+  );
+
+  if (output_size < size) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodePointerButtonPayload(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1PointerButtonEdge *edge
+) {
+  MoonlightProtocolV1PointerButtonEdge decoded;
+  const uint8_t *value;
+  MoonlightProtocolResult result;
+  size_t offset = 0;
+
+  if (input == NULL || edge == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (input_size > MOONLIGHT_PROTOCOL_V1_POINTER_BUTTON_PAYLOAD_SIZE) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (input_size < 3u * MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    1,
+    4u,
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  decoded.input_sequence = input_load_u32(value);
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    2,
+    2u,
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  if (
+    input_load_u16(value) !=
+    MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_POINTER_BUTTON
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+  }
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    3,
+    MOONLIGHT_PROTOCOL_V1_POINTER_BUTTON_BODY_SIZE,
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  decoded.x = input_load_u16(value);
+  decoded.y = input_load_u16(value + 2u);
+  decoded.button = (MoonlightProtocolV1PointerButton) value[4];
+  decoded.pressed = value[5];
+  result = input_validate_pointer_button(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  *edge = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1EncodePointerScrollAtPayload(
+  const MoonlightProtocolV1PointerScrollAt *scroll,
+  uint8_t *output,
+  size_t output_size,
+  size_t *encoded_size
+) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_AT_PAYLOAD_SIZE];
+  uint8_t scalar[MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_AT_BODY_SIZE];
+  MoonlightProtocolResult result;
+  size_t size = 0;
+
+  if (output == NULL || encoded_size == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = input_validate_pointer_scroll_at(scroll);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  input_store_u32(scalar, scroll->input_sequence);
+  size += input_encode_field(encoded + size, 1, scalar, 4u);
+  input_store_u16(
+    scalar,
+    (uint16_t) MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_POINTER_SCROLL_AT
+  );
+  size += input_encode_field(encoded + size, 2, scalar, 2u);
+  input_store_u16(scalar, scroll->x);
+  input_store_u16(scalar + 2u, scroll->y);
+  input_store_u16(scalar + 4u, (uint16_t) scroll->vertical);
+  input_store_u16(scalar + 6u, (uint16_t) scroll->horizontal);
+  size += input_encode_field(
+    encoded + size,
+    3,
+    scalar,
+    MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_AT_BODY_SIZE
+  );
+
+  if (output_size < size) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodePointerScrollAtPayload(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1PointerScrollAt *scroll
+) {
+  MoonlightProtocolV1PointerScrollAt decoded;
+  const uint8_t *value;
+  MoonlightProtocolResult result;
+  size_t offset = 0;
+
+  if (input == NULL || scroll == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (input_size > MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_AT_PAYLOAD_SIZE) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (input_size < 3u * MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    1,
+    4u,
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  decoded.input_sequence = input_load_u32(value);
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    2,
+    2u,
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  if (
+    input_load_u16(value) !=
+    MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_POINTER_SCROLL_AT
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+  }
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    3,
+    MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_AT_BODY_SIZE,
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  decoded.x = input_load_u16(value);
+  decoded.y = input_load_u16(value + 2u);
+  decoded.vertical = input_load_i16(value + 4u);
+  decoded.horizontal = input_load_i16(value + 6u);
+  result = input_validate_pointer_scroll_at(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  *scroll = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
 
 MoonlightProtocolResult MoonlightProtocolV1EncodeTouchEdgePayload(
   const MoonlightProtocolV1TouchEdge *edge,
@@ -755,25 +1053,43 @@ static void input_write_touch_move_body(
   input_store_u16(output + 14u, (uint16_t) move->rotation_centidegrees);
 }
 
-MoonlightProtocolResult MoonlightProtocolV1EncodeTouchMoveDatagram(
+/**
+ * @brief Encode one canonical real-time input DATAGRAM around a validated body.
+ */
+static MoonlightProtocolResult input_encode_realtime_datagram(
   uint32_t session_wire_id,
-  const MoonlightProtocolV1TouchMove *move,
+  uint32_t input_sequence,
+  MoonlightProtocolV1RealtimeInputSubtype subtype,
+  const uint8_t *body,
+  uint16_t body_size,
   uint8_t *output,
   size_t output_size,
   size_t *encoded_size
 ) {
   uint8_t encoded[MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_DATAGRAM_SIZE];
-  MoonlightProtocolResult result;
+  const size_t size =
+    MOONLIGHT_PROTOCOL_V1_DATAGRAM_HEADER_SIZE +
+    MOONLIGHT_PROTOCOL_V1_INPUT_STATE_HEADER_SIZE +
+    body_size;
 
-  if (session_wire_id == 0 || output == NULL || encoded_size == NULL) {
+  if (
+    session_wire_id == 0 ||
+    body == NULL ||
+    output == NULL ||
+    encoded_size == NULL
+  ) {
     return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
   }
-  result = input_validate_touch_move(move);
-  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
-    return result;
+  if (input_sequence == 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
   }
-  if (output_size < sizeof(encoded)) {
-    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  if (
+    body_size > MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_BODY_SIZE ||
+    output_size < size
+  ) {
+    return body_size > MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_BODY_SIZE ?
+             MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED :
+             MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
   }
 
   encoded[0] = MOONLIGHT_PROTOCOL_V1_CHANNEL_REALTIME_INPUT;
@@ -781,51 +1097,64 @@ MoonlightProtocolResult MoonlightProtocolV1EncodeTouchMoveDatagram(
   input_store_u16(encoded + 2u, 0);
   input_store_u32(encoded + 4u, session_wire_id);
   input_store_u32(encoded + 8u, 0);
-  input_store_u32(encoded + 12u, move->input_sequence);
+  input_store_u32(encoded + 12u, input_sequence);
   input_store_u32(
     encoded + MOONLIGHT_PROTOCOL_V1_DATAGRAM_HEADER_SIZE,
-    move->input_sequence
+    input_sequence
   );
   input_store_u16(
     encoded + MOONLIGHT_PROTOCOL_V1_DATAGRAM_HEADER_SIZE + 4u,
-    (uint16_t) MOONLIGHT_PROTOCOL_V1_REALTIME_INPUT_TOUCH_MOVE
+    (uint16_t) subtype
   );
   input_store_u16(
     encoded + MOONLIGHT_PROTOCOL_V1_DATAGRAM_HEADER_SIZE + 6u,
-    MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_BODY_SIZE
+    body_size
   );
-  input_write_touch_move_body(
-    move,
+  memcpy(
     encoded + MOONLIGHT_PROTOCOL_V1_DATAGRAM_HEADER_SIZE +
-      MOONLIGHT_PROTOCOL_V1_INPUT_STATE_HEADER_SIZE
+      MOONLIGHT_PROTOCOL_V1_INPUT_STATE_HEADER_SIZE,
+    body,
+    body_size
   );
 
-  memcpy(output, encoded, sizeof(encoded));
-  *encoded_size = sizeof(encoded);
+  memcpy(output, encoded, size);
+  *encoded_size = size;
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
 
-MoonlightProtocolResult MoonlightProtocolV1DecodeTouchMoveDatagram(
+/**
+ * @brief Strictly decode one real-time input DATAGRAM header and body extent.
+ */
+static MoonlightProtocolResult input_decode_realtime_header(
   uint32_t expected_session_wire_id,
   const uint8_t *input,
   size_t input_size,
-  MoonlightProtocolV1TouchMove *move
+  MoonlightProtocolV1RealtimeInputSubtype *subtype,
+  uint16_t *body_size,
+  uint32_t *input_sequence,
+  const uint8_t **body
 ) {
   MoonlightProtocolV1DatagramHeader header;
-  MoonlightProtocolV1TouchMove decoded;
   const uint8_t *state;
-  const uint8_t *body;
   MoonlightProtocolResult result;
+  const size_t prefix_size =
+    MOONLIGHT_PROTOCOL_V1_DATAGRAM_HEADER_SIZE +
+    MOONLIGHT_PROTOCOL_V1_INPUT_STATE_HEADER_SIZE;
   uint32_t state_sequence;
+  uint16_t decoded_body_size;
 
-  if (expected_session_wire_id == 0 || input == NULL || move == NULL) {
+  if (
+    expected_session_wire_id == 0 ||
+    input == NULL ||
+    subtype == NULL ||
+    body_size == NULL ||
+    input_sequence == NULL ||
+    body == NULL
+  ) {
     return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
   }
-  if (input_size < MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_DATAGRAM_SIZE) {
+  if (input_size < prefix_size) {
     return MOONLIGHT_PROTOCOL_RESULT_TRUNCATED;
-  }
-  if (input_size > MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_DATAGRAM_SIZE) {
-    return MOONLIGHT_PROTOCOL_RESULT_TRAILING_DATA;
   }
 
   result = MoonlightProtocolV1DecodeDatagramHeader(
@@ -852,18 +1181,229 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeTouchMoveDatagram(
   if (state_sequence == 0 || state_sequence != header.sequence) {
     return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
   }
-  if (
-    input_load_u16(state + 4u) !=
-    MOONLIGHT_PROTOCOL_V1_REALTIME_INPUT_TOUCH_MOVE
-  ) {
-    return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+  decoded_body_size = input_load_u16(state + 6u);
+
+  *subtype =
+    (MoonlightProtocolV1RealtimeInputSubtype) input_load_u16(state + 4u);
+  *body_size = decoded_body_size;
+  *input_sequence = state_sequence;
+  *body = state + MOONLIGHT_PROTOCOL_V1_INPUT_STATE_HEADER_SIZE;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodeRealtimeInputSubtype(
+  uint32_t expected_session_wire_id,
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1RealtimeInputSubtype *subtype
+) {
+  MoonlightProtocolV1RealtimeInputSubtype decoded;
+  const uint8_t *body;
+  MoonlightProtocolResult result;
+  uint32_t input_sequence;
+  uint16_t body_size;
+
+  if (subtype == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
   }
-  if (input_load_u16(state + 6u) != MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_BODY_SIZE) {
-    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  result = input_decode_realtime_header(
+    expected_session_wire_id,
+    input,
+    input_size,
+    &decoded,
+    &body_size,
+    &input_sequence,
+    &body
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  if (body_size > MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_BODY_SIZE) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  {
+    const size_t expected_size =
+      MOONLIGHT_PROTOCOL_V1_DATAGRAM_HEADER_SIZE +
+      MOONLIGHT_PROTOCOL_V1_INPUT_STATE_HEADER_SIZE +
+      body_size;
+    if (input_size < expected_size) {
+      return MOONLIGHT_PROTOCOL_RESULT_TRUNCATED;
+    }
+    if (input_size > expected_size) {
+      return MOONLIGHT_PROTOCOL_RESULT_TRAILING_DATA;
+    }
+  }
+  *subtype = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+/**
+ * @brief Strictly decode one expected real-time input DATAGRAM.
+ */
+static MoonlightProtocolResult input_decode_realtime_datagram(
+  uint32_t expected_session_wire_id,
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1RealtimeInputSubtype expected_subtype,
+  uint16_t expected_body_size,
+  uint32_t *input_sequence,
+  const uint8_t **body
+) {
+  MoonlightProtocolV1RealtimeInputSubtype subtype;
+  MoonlightProtocolResult result;
+  uint16_t body_size;
+
+  if (
+    expected_session_wire_id == 0 ||
+    input == NULL ||
+    input_sequence == NULL ||
+    body == NULL
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
   }
 
-  body = state + MOONLIGHT_PROTOCOL_V1_INPUT_STATE_HEADER_SIZE;
-  decoded.input_sequence = state_sequence;
+  result = input_decode_realtime_header(
+    expected_session_wire_id,
+    input,
+    input_size,
+    &subtype,
+    &body_size,
+    input_sequence,
+    body
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  if (subtype != expected_subtype) {
+    return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+  }
+  if (body_size != expected_body_size) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  {
+    const size_t expected_size =
+      MOONLIGHT_PROTOCOL_V1_DATAGRAM_HEADER_SIZE +
+      MOONLIGHT_PROTOCOL_V1_INPUT_STATE_HEADER_SIZE +
+      expected_body_size;
+    if (input_size < expected_size) {
+      return MOONLIGHT_PROTOCOL_RESULT_TRUNCATED;
+    }
+    if (input_size > expected_size) {
+      return MOONLIGHT_PROTOCOL_RESULT_TRAILING_DATA;
+    }
+  }
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1EncodePointerAbsoluteDatagram(
+  uint32_t session_wire_id,
+  const MoonlightProtocolV1PointerAbsolute *position,
+  uint8_t *output,
+  size_t output_size,
+  size_t *encoded_size
+) {
+  uint8_t body[MOONLIGHT_PROTOCOL_V1_POINTER_ABSOLUTE_BODY_SIZE];
+
+  if (position == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  input_store_u16(body, position->x);
+  input_store_u16(body + 2u, position->y);
+  return input_encode_realtime_datagram(
+    session_wire_id,
+    position->input_sequence,
+    MOONLIGHT_PROTOCOL_V1_REALTIME_INPUT_POINTER_ABSOLUTE,
+    body,
+    sizeof(body),
+    output,
+    output_size,
+    encoded_size
+  );
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodePointerAbsoluteDatagram(
+  uint32_t expected_session_wire_id,
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1PointerAbsolute *position
+) {
+  MoonlightProtocolV1PointerAbsolute decoded;
+  const uint8_t *body;
+  MoonlightProtocolResult result;
+
+  if (position == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = input_decode_realtime_datagram(
+    expected_session_wire_id,
+    input,
+    input_size,
+    MOONLIGHT_PROTOCOL_V1_REALTIME_INPUT_POINTER_ABSOLUTE,
+    MOONLIGHT_PROTOCOL_V1_POINTER_ABSOLUTE_BODY_SIZE,
+    &decoded.input_sequence,
+    &body
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  decoded.x = input_load_u16(body);
+  decoded.y = input_load_u16(body + 2u);
+  *position = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1EncodeTouchMoveDatagram(
+  uint32_t session_wire_id,
+  const MoonlightProtocolV1TouchMove *move,
+  uint8_t *output,
+  size_t output_size,
+  size_t *encoded_size
+) {
+  uint8_t body[MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_BODY_SIZE];
+  MoonlightProtocolResult result;
+
+  result = input_validate_touch_move(move);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  input_write_touch_move_body(move, body);
+  return input_encode_realtime_datagram(
+    session_wire_id,
+    move->input_sequence,
+    MOONLIGHT_PROTOCOL_V1_REALTIME_INPUT_TOUCH_MOVE,
+    body,
+    sizeof(body),
+    output,
+    output_size,
+    encoded_size
+  );
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodeTouchMoveDatagram(
+  uint32_t expected_session_wire_id,
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1TouchMove *move
+) {
+  MoonlightProtocolV1TouchMove decoded;
+  const uint8_t *body;
+  MoonlightProtocolResult result;
+
+  if (move == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = input_decode_realtime_datagram(
+    expected_session_wire_id,
+    input,
+    input_size,
+    MOONLIGHT_PROTOCOL_V1_REALTIME_INPUT_TOUCH_MOVE,
+    MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_BODY_SIZE,
+    &decoded.input_sequence,
+    &body
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
   decoded.contact = input_load_u32(body);
   decoded.x = input_load_u16(body + 4u);
   decoded.y = input_load_u16(body + 6u);
