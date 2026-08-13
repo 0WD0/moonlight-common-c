@@ -177,7 +177,7 @@ static bool test_request_round_trip_bounds(void) {
   TEST_CHECK(
     MOONLIGHT_PROTOCOL_V1_CAPABILITY_AUDIO_DATAGRAM == UINT64_C(0x40)
   );
-  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_CAPABILITY_MASK == UINT64_C(0x1ff));
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_CAPABILITY_MASK == UINT64_C(0x3ff));
 
   request.software_version_size = 1;
   TEST_RESULT(
@@ -195,7 +195,7 @@ static bool test_request_round_trip_bounds(void) {
   TEST_CHECK(encoded[8] == 0 && encoded[9] == 1);
   TEST_CHECK(encoded[10] == 0 && encoded[11] == 2);
   TEST_CHECK(encoded[14] == 0 && encoded[17] == 8);
-  TEST_CHECK(encoded[18] == 0 && encoded[25] == 0xff);
+  TEST_CHECK(encoded[18] == 0 && encoded[24] == 0x03 && encoded[25] == 0xff);
   TEST_CHECK(encoded[26] == 0 && encoded[27] == 3);
   TEST_CHECK(encoded[30] == 0 && encoded[33] == 1);
   TEST_CHECK(encoded[34] == '1');
@@ -422,7 +422,7 @@ static bool test_request_encode_rejections(void) {
     MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH
   );
   request = valid_request();
-  request.capability_bits = UINT64_C(0x200);  // Undefined capability bit (bit 9).
+  request.capability_bits = UINT64_C(0x400);  // Undefined capability bit (bit 10).
   TEST_RESULT(
     MoonlightProtocolV1EncodeClientHelloRequest(
       &request,
@@ -767,7 +767,7 @@ static bool test_response_encode_rejections(void) {
     MOONLIGHT_PROTOCOL_RESULT_CONTEXT_MISMATCH
   );
   response = valid_response();
-  response.capability_bits = UINT64_C(0x200);  // Undefined capability bit (bit 9).
+  response.capability_bits = UINT64_C(0x400);  // Undefined capability bit (bit 10).
   TEST_RESULT(
     MoonlightProtocolV1EncodeClientHelloResponse(
       &response,

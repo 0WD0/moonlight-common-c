@@ -86,6 +86,46 @@ static const uint8_t TEST_KEY_EDGE_GOLDEN[MOONLIGHT_PROTOCOL_V1_KEY_EDGE_PAYLOAD
 };
 
 /**
+ * @brief Canonical reliable POINTER_SCROLL golden bytes.
+ */
+static const uint8_t TEST_POINTER_SCROLL_GOLDEN[MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_PAYLOAD_SIZE] = {
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x04,
+  0x01,
+  0x02,
+  0x03,
+  0x04,
+  0x00,
+  0x02,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x02,
+  0x01,
+  0x05,
+  0x00,
+  0x03,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x04,
+  0x00,
+  0x78,
+  0xff,
+  0x10,
+};
+
+/**
  * @brief Canonical reliable TOUCH_EDGE golden bytes.
  */
 static const uint8_t TEST_TOUCH_EDGE_GOLDEN[MOONLIGHT_PROTOCOL_V1_TOUCH_EDGE_PAYLOAD_SIZE] = {
@@ -199,6 +239,15 @@ static const MoonlightProtocolV1KeyEdge TEST_KEY_EDGE = {
 };
 
 /**
+ * @brief Canonical host-order pointer scroll matching the golden bytes.
+ */
+static const MoonlightProtocolV1PointerScroll TEST_POINTER_SCROLL = {
+  .input_sequence = UINT32_C(0x01020304),
+  .vertical = 120,
+  .horizontal = -240,
+};
+
+/**
  * @brief Canonical host-order reliable edge matching the golden bytes.
  */
 static const MoonlightProtocolV1TouchEdge TEST_TOUCH_EDGE = {
@@ -267,6 +316,18 @@ static bool test_key_edges_equal(
          left->usage == right->usage &&
          left->pressed == right->pressed &&
          left->modifiers == right->modifiers;
+}
+
+/**
+ * @brief Compares every semantic field in two pointer scroll updates.
+ */
+static bool test_pointer_scrolls_equal(
+  const MoonlightProtocolV1PointerScroll *left,
+  const MoonlightProtocolV1PointerScroll *right
+) {
+  return left->input_sequence == right->input_sequence &&
+         left->vertical == right->vertical &&
+         left->horizontal == right->horizontal;
 }
 
 /**
@@ -602,6 +663,208 @@ static bool test_key_edge_rejections(void) {
     MOONLIGHT_PROTOCOL_RESULT_MALFORMED
   );
   TEST_CHECK(subtype == MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_TOUCH_EDGE);
+  return true;
+}
+
+/**
+ * @brief Exercises canonical pointer-scroll bytes, signed deltas, and rejections.
+ */
+static bool test_pointer_scroll(void) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_PAYLOAD_SIZE];
+  uint8_t before[sizeof(encoded)];
+  uint8_t mutated[sizeof(encoded)];
+  MoonlightProtocolV1PointerScroll scroll = TEST_POINTER_SCROLL;
+  MoonlightProtocolV1PointerScroll decoded;
+  MoonlightProtocolV1PointerScroll decoded_before;
+  MoonlightProtocolV1ReliableInputSubtype subtype =
+    MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_TOUCH_EDGE;
+  size_t encoded_size = 17;
+
+  TEST_CHECK(
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_POINTER_SCROLL ==
+    UINT64_C(0x200)
+  );
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_CAPABILITY_MASK == UINT64_C(0x3ff));
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_BODY_SIZE == 4u);
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_PAYLOAD_SIZE == 34u);
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePointerScrollPayload(
+      &scroll,
+      encoded,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(encoded_size == sizeof(encoded));
+  TEST_CHECK(
+    memcmp(encoded, TEST_POINTER_SCROLL_GOLDEN, sizeof(encoded)) == 0
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeReliableInputSubtype(
+      encoded,
+      sizeof(encoded),
+      &subtype
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(
+    subtype == MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_POINTER_SCROLL
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePointerScrollPayload(
+      encoded,
+      sizeof(encoded),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(test_pointer_scrolls_equal(&decoded, &scroll));
+
+  scroll.vertical = INT16_MIN;
+  scroll.horizontal = INT16_MAX;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePointerScrollPayload(
+      &scroll,
+      encoded,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePointerScrollPayload(
+      encoded,
+      sizeof(encoded),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(test_pointer_scrolls_equal(&decoded, &scroll));
+
+  memset(encoded, 0xa5, sizeof(encoded));
+  memcpy(before, encoded, sizeof(before));
+  scroll = TEST_POINTER_SCROLL;
+  encoded_size = 17;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePointerScrollPayload(
+      NULL,
+      encoded,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePointerScrollPayload(
+      &scroll,
+      NULL,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePointerScrollPayload(
+      &scroll,
+      encoded,
+      sizeof(encoded),
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePointerScrollPayload(
+      &scroll,
+      encoded,
+      sizeof(encoded) - 1u,
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL
+  );
+  TEST_CHECK(encoded_size == 17u);
+  TEST_CHECK(memcmp(encoded, before, sizeof(encoded)) == 0);
+
+  scroll.input_sequence = 0;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePointerScrollPayload(
+      &scroll,
+      encoded,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  scroll = TEST_POINTER_SCROLL;
+  scroll.vertical = 0;
+  scroll.horizontal = 0;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodePointerScrollPayload(
+      &scroll,
+      encoded,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+
+  memset(&decoded, 0x5a, sizeof(decoded));
+  decoded_before = decoded;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePointerScrollPayload(
+      NULL,
+      sizeof(TEST_POINTER_SCROLL_GOLDEN),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePointerScrollPayload(
+      TEST_POINTER_SCROLL_GOLDEN,
+      sizeof(TEST_POINTER_SCROLL_GOLDEN),
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePointerScrollPayload(
+      TEST_POINTER_SCROLL_GOLDEN,
+      sizeof(TEST_POINTER_SCROLL_GOLDEN) + 1u,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePointerScrollPayload(
+      TEST_POINTER_SCROLL_GOLDEN,
+      sizeof(TEST_POINTER_SCROLL_GOLDEN) - 1u,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  memcpy(mutated, TEST_POINTER_SCROLL_GOLDEN, sizeof(mutated));
+  test_store_u16(mutated + 20u, 0x0106);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePointerScrollPayload(
+      mutated,
+      sizeof(mutated),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  memcpy(mutated, TEST_POINTER_SCROLL_GOLDEN, sizeof(mutated));
+  memset(mutated + 30u, 0, 4u);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodePointerScrollPayload(
+      mutated,
+      sizeof(mutated),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(
+    test_pointer_scrolls_equal(&decoded, &decoded_before)
+  );
   return true;
 }
 
@@ -998,7 +1261,7 @@ static bool test_touch_edge_decode_rejections(void) {
     MOONLIGHT_PROTOCOL_RESULT_MALFORMED
   );
   memcpy(mutated, TEST_TOUCH_EDGE_GOLDEN, sizeof(TEST_TOUCH_EDGE_GOLDEN));
-  test_store_u16(mutated + 20u, 0x0105);
+  test_store_u16(mutated + 20u, 0x0106);
   TEST_RESULT(
     MoonlightProtocolV1DecodeTouchEdgePayload(
       mutated,
@@ -1361,6 +1624,7 @@ int main(void) {
 
   failures += run_test("key_edge_golden", test_key_edge_golden);
   failures += run_test("key_edge_rejections", test_key_edge_rejections);
+  failures += run_test("pointer_scroll", test_pointer_scroll);
   failures += run_test("touch_goldens", test_touch_goldens);
   failures += run_test(
     "touch_edge_encode_rejections",

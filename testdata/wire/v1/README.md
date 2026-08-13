@@ -35,7 +35,7 @@ data coding shard.
 `control-early-hello-max.hex` is the exact 138-byte 0-RTT ceiling: a Control
 preface, a protocol-minor-1 `CLIENT_HELLO` request envelope, and 98 bytes of
 canonical TLVs advertising every defined capability, including microphone
-DATAGRAM and physical-keyboard input.
+DATAGRAM, physical-keyboard input, and high-resolution pointer scroll.
 The reverse direction of a bidirectional lane never repeats the preface;
 response and notification artifacts therefore begin directly with `SQM1`.
 

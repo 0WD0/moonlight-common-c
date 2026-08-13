@@ -683,7 +683,7 @@ static bool test_encode_rejections(void) {
     MOONLIGHT_PROTOCOL_RESULT_MALFORMED
   );
   response = valid_response();
-  response.capability_bits = UINT64_C(0x200);
+  response.capability_bits = UINT64_C(0x400);
   TEST_RESULT(
     MoonlightProtocolV1EncodeHostInfoResponse(
       &response,
@@ -994,7 +994,7 @@ static bool test_decode_value_rejections(void) {
   );
   memcpy(mutated, valid, valid_size);
   memset(mutated + 80u, 0, 8);
-  mutated[86] = 0x02;  // Undefined capability bit (bit 9).
+  mutated[85] = 0x04;  // Undefined capability bit (bit 10).
   TEST_CHECK(
     decode_rejects(
       mutated,

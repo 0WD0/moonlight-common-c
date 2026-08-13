@@ -271,6 +271,27 @@ static MoonlightProtocolResult input_validate_key_edge(
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
 
+/**
+ * @brief Validates one caller-supplied pointer scroll update.
+ *
+ * @param scroll Update to validate.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult input_validate_pointer_scroll(
+  const MoonlightProtocolV1PointerScroll *scroll
+) {
+  if (scroll == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    scroll->input_sequence == 0 ||
+    (scroll->vertical == 0 && scroll->horizontal == 0)
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
 MoonlightProtocolResult MoonlightProtocolV1DecodeReliableInputSubtype(
   const uint8_t *input,
   size_t input_size,
@@ -447,6 +468,125 @@ MoonlightProtocolResult MoonlightProtocolV1DecodeKeyEdgePayload(
   }
 
   *edge = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1EncodePointerScrollPayload(
+  const MoonlightProtocolV1PointerScroll *scroll,
+  uint8_t *output,
+  size_t output_size,
+  size_t *encoded_size
+) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_PAYLOAD_SIZE];
+  uint8_t scalar[MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_BODY_SIZE];
+  MoonlightProtocolResult result;
+  size_t size = 0;
+
+  if (output == NULL || encoded_size == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = input_validate_pointer_scroll(scroll);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  input_store_u32(scalar, scroll->input_sequence);
+  size += input_encode_field(encoded + size, 1, scalar, 4u);
+  input_store_u16(
+    scalar,
+    (uint16_t) MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_POINTER_SCROLL
+  );
+  size += input_encode_field(encoded + size, 2, scalar, 2u);
+  input_store_u16(scalar, (uint16_t) scroll->vertical);
+  input_store_u16(scalar + 2u, (uint16_t) scroll->horizontal);
+  size += input_encode_field(
+    encoded + size,
+    3,
+    scalar,
+    MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_BODY_SIZE
+  );
+
+  if (output_size < size) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodePointerScrollPayload(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1PointerScroll *scroll
+) {
+  MoonlightProtocolV1PointerScroll decoded;
+  const uint8_t *value;
+  MoonlightProtocolResult result;
+  size_t offset = 0;
+
+  if (input == NULL || scroll == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (input_size > MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_PAYLOAD_SIZE) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (input_size < 3u * MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    1,
+    4u,
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  decoded.input_sequence = input_load_u32(value);
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    2,
+    2u,
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  if (
+    input_load_u16(value) !=
+    MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_POINTER_SCROLL
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+  }
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    3,
+    MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_BODY_SIZE,
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  decoded.vertical = input_load_i16(value);
+  decoded.horizontal = input_load_i16(value + 2u);
+  result = input_validate_pointer_scroll(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  *scroll = decoded;
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
 

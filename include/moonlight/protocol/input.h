@@ -25,6 +25,18 @@ extern "C" {
    MOONLIGHT_PROTOCOL_V1_KEY_EDGE_BODY_SIZE)
 
 /**
+ * @brief Exact byte count of a canonical reliable POINTER_SCROLL body.
+ */
+#define MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_BODY_SIZE 4u
+
+/**
+ * @brief Exact byte count of a canonical reliable POINTER_SCROLL TLV payload.
+ */
+#define MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_PAYLOAD_SIZE \
+  (3u * MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + 4u + 2u + \
+   MOONLIGHT_PROTOCOL_V1_POINTER_SCROLL_BODY_SIZE)
+
+/**
  * @brief Exact byte count of a canonical reliable TOUCH_EDGE body.
  */
 #define MOONLIGHT_PROTOCOL_V1_TOUCH_EDGE_BODY_SIZE 18u
@@ -59,7 +71,8 @@ extern "C" {
    */
   typedef enum MoonlightProtocolV1ReliableInputSubtype {
     MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_KEY_EDGE = 0x0101,  ///< Reliable physical-keyboard edge.
-    MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_TOUCH_EDGE = 0x0104  ///< Reliable touch lifecycle edge.
+    MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_TOUCH_EDGE = 0x0104,  ///< Reliable touch lifecycle edge.
+    MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_POINTER_SCROLL = 0x0105  ///< Reliable high-resolution pointer scroll.
   } MoonlightProtocolV1ReliableInputSubtype;
 
   /**
@@ -102,6 +115,18 @@ extern "C" {
     uint8_t pressed;  ///< Exactly one for press or zero for release.
     uint8_t modifiers;  ///< USB HID boot-keyboard modifier bitmap after this edge.
   } MoonlightProtocolV1KeyEdge;
+
+  /**
+   * @brief Holds one canonical reliable high-resolution pointer scroll update.
+   *
+   * One wheel detent is 120 units. Signed deltas preserve the Client platform's
+   * vertical and horizontal direction conventions without coalescing.
+   */
+  typedef struct MoonlightProtocolV1PointerScroll {
+    uint32_t input_sequence;  ///< Nonzero serial shared with other direct input.
+    int16_t vertical;  ///< Signed high-resolution vertical wheel units.
+    int16_t horizontal;  ///< Signed high-resolution horizontal wheel units.
+  } MoonlightProtocolV1PointerScroll;
 
   /**
    * @brief Holds one canonical reliable TOUCH_EDGE notification.
@@ -183,6 +208,42 @@ extern "C" {
     const uint8_t *input,
     size_t input_size,
     MoonlightProtocolV1KeyEdge *edge
+  );
+
+  /**
+   * @brief Encodes one complete canonical reliable POINTER_SCROLL TLV payload.
+   *
+   * The output buffer and `encoded_size` remain unchanged on failure.
+   *
+   * @param scroll Nonzero vertical and/or horizontal host-order delta.
+   * @param output Destination buffer.
+   * @param output_size Available bytes in `output`.
+   * @param encoded_size Receives the exact encoded payload size.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1EncodePointerScrollPayload(
+    const MoonlightProtocolV1PointerScroll *scroll,
+    uint8_t *output,
+    size_t output_size,
+    size_t *encoded_size
+  );
+
+  /**
+   * @brief Decodes one complete canonical reliable POINTER_SCROLL TLV payload.
+   *
+   * `scroll` remains unchanged on failure. The caller validates the containing
+   * notification envelope, Reliable Input Lane, negotiated capability,
+   * authorization, and active Stream Session.
+   *
+   * @param input Complete reliable-message payload.
+   * @param input_size Number of bytes in `input`.
+   * @param scroll Receives validated host-order values only on success.
+   * @return The codec result.
+   */
+  MoonlightProtocolResult MoonlightProtocolV1DecodePointerScrollPayload(
+    const uint8_t *input,
+    size_t input_size,
+    MoonlightProtocolV1PointerScroll *scroll
   );
 
   /**
