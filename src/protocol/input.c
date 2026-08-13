@@ -1,6 +1,6 @@
 /**
  * @file input.c
- * @brief Implements canonical protocol version 1 touch input encoding.
+ * @brief Implements canonical protocol version 1 typed input encoding.
  */
 
 #include <limits.h>
@@ -11,9 +11,9 @@
 #include <string.h>
 
 /**
- * @brief Number of required fields in one reliable TOUCH_EDGE payload.
+ * @brief Number of required fields in one reliable input payload.
  */
-#define TOUCH_EDGE_FIELD_COUNT 3u
+#define RELIABLE_INPUT_FIELD_COUNT 3u
 
 /**
  * @brief Stores one network-order 16-bit integer.
@@ -213,7 +213,7 @@ static MoonlightProtocolResult input_decode_scalar(
   }
   if (field.field_id != expected_id) {
     return field.field_id >= 1u &&
-               field.field_id <= TOUCH_EDGE_FIELD_COUNT ?
+               field.field_id <= RELIABLE_INPUT_FIELD_COUNT ?
              MOONLIGHT_PROTOCOL_RESULT_MALFORMED :
              MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
   }
@@ -231,6 +231,225 @@ static MoonlightProtocolResult input_decode_scalar(
   *offset += MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + field.field_length;
   return MOONLIGHT_PROTOCOL_RESULT_OK;
 }
+
+/**
+ * @brief Validates one caller-supplied reliable keyboard edge.
+ *
+ * @param edge Edge to validate.
+ * @return The codec result.
+ */
+static MoonlightProtocolResult input_validate_key_edge(
+  const MoonlightProtocolV1KeyEdge *edge
+) {
+  if (edge == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (
+    edge->input_sequence == 0 ||
+    edge->usage_page == 0 ||
+    edge->usage == 0
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  if (edge->pressed > 1u) {
+    return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+  }
+  if (
+    edge->usage_page == 0x0007u &&
+    edge->usage >= 0x00e0u &&
+    edge->usage <= 0x00e7u
+  ) {
+    const uint8_t modifier =
+      (uint8_t)(1u << (edge->usage - 0x00e0u));
+    if (
+      ((edge->modifiers & modifier) != 0u) !=
+      (edge->pressed != 0u)
+    ) {
+      return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+    }
+  }
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodeReliableInputSubtype(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1ReliableInputSubtype *subtype
+) {
+  const uint8_t *value;
+  MoonlightProtocolResult result;
+  MoonlightProtocolV1ReliableInputSubtype decoded;
+  size_t offset = 0;
+
+  if (input == NULL || subtype == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (input_size > MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_PAYLOAD_MAX) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (input_size < 2u * MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE + 6u) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    1,
+    4u,
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  if (input_load_u32(value) == 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    2,
+    2u,
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  decoded = (MoonlightProtocolV1ReliableInputSubtype) input_load_u16(value);
+  *subtype = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1EncodeKeyEdgePayload(
+  const MoonlightProtocolV1KeyEdge *edge,
+  uint8_t *output,
+  size_t output_size,
+  size_t *encoded_size
+) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_KEY_EDGE_PAYLOAD_SIZE];
+  uint8_t scalar[MOONLIGHT_PROTOCOL_V1_KEY_EDGE_BODY_SIZE];
+  MoonlightProtocolResult result;
+  size_t size = 0;
+
+  if (output == NULL || encoded_size == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  result = input_validate_key_edge(edge);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  input_store_u32(scalar, edge->input_sequence);
+  size += input_encode_field(encoded + size, 1, scalar, 4u);
+  input_store_u16(
+    scalar,
+    (uint16_t) MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_KEY_EDGE
+  );
+  size += input_encode_field(encoded + size, 2, scalar, 2u);
+  input_store_u16(scalar, edge->usage_page);
+  input_store_u16(scalar + 2u, edge->usage);
+  scalar[4] = edge->pressed;
+  scalar[5] = edge->modifiers;
+  scalar[6] = 0;
+  scalar[7] = 0;
+  size += input_encode_field(
+    encoded + size,
+    3,
+    scalar,
+    MOONLIGHT_PROTOCOL_V1_KEY_EDGE_BODY_SIZE
+  );
+
+  if (output_size < size) {
+    return MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL;
+  }
+  memcpy(output, encoded, size);
+  *encoded_size = size;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
+MoonlightProtocolResult MoonlightProtocolV1DecodeKeyEdgePayload(
+  const uint8_t *input,
+  size_t input_size,
+  MoonlightProtocolV1KeyEdge *edge
+) {
+  MoonlightProtocolV1KeyEdge decoded;
+  const uint8_t *value;
+  MoonlightProtocolResult result;
+  size_t offset = 0;
+
+  if (input == NULL || edge == NULL) {
+    return MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT;
+  }
+  if (input_size > MOONLIGHT_PROTOCOL_V1_KEY_EDGE_PAYLOAD_SIZE) {
+    return MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED;
+  }
+  if (input_size < 3u * MOONLIGHT_PROTOCOL_V1_TLV_HEADER_SIZE) {
+    return MOONLIGHT_PROTOCOL_RESULT_MALFORMED;
+  }
+
+  memset(&decoded, 0, sizeof(decoded));
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    1,
+    4u,
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  decoded.input_sequence = input_load_u32(value);
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    2,
+    2u,
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  if (
+    input_load_u16(value) !=
+    MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_KEY_EDGE
+  ) {
+    return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+  }
+  result = input_decode_scalar(
+    input,
+    input_size,
+    &offset,
+    3,
+    MOONLIGHT_PROTOCOL_V1_KEY_EDGE_BODY_SIZE,
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED,
+    &value
+  );
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+  if (value[6] != 0 || value[7] != 0) {
+    return MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED;
+  }
+
+  decoded.usage_page = input_load_u16(value);
+  decoded.usage = input_load_u16(value + 2u);
+  decoded.pressed = value[4];
+  decoded.modifiers = value[5];
+  result = input_validate_key_edge(&decoded);
+  if (result != MOONLIGHT_PROTOCOL_RESULT_OK) {
+    return result;
+  }
+
+  *edge = decoded;
+  return MOONLIGHT_PROTOCOL_RESULT_OK;
+}
+
 
 MoonlightProtocolResult MoonlightProtocolV1EncodeTouchEdgePayload(
   const MoonlightProtocolV1TouchEdge *edge,

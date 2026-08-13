@@ -13,9 +13,9 @@ representation.
 | `audio-data.hex` | DATAGRAM | 52 | `27d871c6068a816024a923373f84399ad5517075d550cf91bbecd0548d67b1b3` |
 | `audio-parity.hex` | DATAGRAM | 52 | `c7d7d64ad1703f7511f503f6a74c4e744571ff99962f341a1a8e69b83246e4fd` |
 | `control-coalesced.hex` | initiating stream half | 73 | `07fa4b2cfa8673eb57e2345936107dcae2c177f05cc6a6b10253a90d1bde30fd` |
-| `control-early-hello-max.hex` | initiating stream half | 138 | `b94738b5b32d9098aae3667ae406f83dc4994cfc6f77f2c8502dc3ac782bf6b4` |
+| `control-early-hello-max.hex` | initiating stream half | 138 | `dad90a2816eb042ee4b29c02547fa3f32228b49c1df3faae082fcb797ab79fee` |
 | `goaway-notification.hex` | envelope and payload | 48 | `c87ac84c6f08b18c2386cc63987af9537201f793793d7ce768d7338bb2130e78` |
-| `host-info-success-response.hex` | envelope and payload | 177 | `0ee77d96837edaafd5965ec079a5fd84f29d9357d60f1020c02a8715cc140152` |
+| `host-info-success-response.hex` | envelope and payload | 177 | `213674367d35e829eea6e829f59601efb0f4241bea93470e9d88455d91abf1bf` |
 | `pair-request-max.hex` | envelope and payload | 184 | `a9d6cadd6e4b24094963efab6124d78a1478cbb253f8a1c368cc9c4d9b9f2e3d` |
 | `pairing-proof-transcript.hex` | Client Proof signature transcript | 190 | `9cbe9648e2b917ff5e4f3850f84ab4fa942d5bea663d1bdf1bc79e7afb38d9f0` |
 | `ping-success-response.hex` | envelope and payload | 35 | `cf325e5eb19d9daab5c2011e97762bb9ad86bde75713da712fa70bcee0bb9eaf` |
@@ -34,7 +34,8 @@ data coding shard.
 
 `control-early-hello-max.hex` is the exact 138-byte 0-RTT ceiling: a Control
 preface, a protocol-minor-1 `CLIENT_HELLO` request envelope, and 98 bytes of
-canonical TLVs advertising every defined capability, including Audio DATAGRAM.
+canonical TLVs advertising every defined capability, including microphone
+DATAGRAM and physical-keyboard input.
 The reverse direction of a bidirectional lane never repeats the preface;
 response and notification artifacts therefore begin directly with `SQM1`.
 

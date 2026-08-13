@@ -1,6 +1,6 @@
 /**
  * @file test_input.c
- * @brief Native tests for canonical protocol version 1 touch input.
+ * @brief Native tests for canonical protocol version 1 typed input.
  */
 
 #include <moonlight/protocol/control.h>
@@ -40,6 +40,50 @@
       return false; \
     } \
   } while (0)
+
+/**
+ * @brief Canonical reliable KEY_EDGE golden bytes.
+ */
+static const uint8_t TEST_KEY_EDGE_GOLDEN[MOONLIGHT_PROTOCOL_V1_KEY_EDGE_PAYLOAD_SIZE] = {
+  0x00,
+  0x01,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x04,
+  0x01,
+  0x02,
+  0x03,
+  0x04,
+  0x00,
+  0x02,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x02,
+  0x01,
+  0x01,
+  0x00,
+  0x03,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
+  0x08,
+  0x00,
+  0x07,
+  0x00,
+  0x04,
+  0x01,
+  0x03,
+  0x00,
+  0x00,
+};
 
 /**
  * @brief Canonical reliable TOUCH_EDGE golden bytes.
@@ -142,6 +186,19 @@ static const uint8_t TEST_TOUCH_MOVE_GOLDEN[MOONLIGHT_PROTOCOL_V1_TOUCH_MOVE_DAT
 };
 
 /**
+ * @brief Canonical host-order keyboard edge matching the golden bytes.
+ */
+static const MoonlightProtocolV1KeyEdge TEST_KEY_EDGE = {
+  .input_sequence = UINT32_C(0x01020304),
+  .usage_page = UINT16_C(0x0007),
+  .usage = UINT16_C(0x0004),
+  .pressed = 1,
+  .modifiers =
+    MOONLIGHT_PROTOCOL_V1_KEY_MODIFIER_LEFT_CONTROL |
+    MOONLIGHT_PROTOCOL_V1_KEY_MODIFIER_LEFT_SHIFT,
+};
+
+/**
  * @brief Canonical host-order reliable edge matching the golden bytes.
  */
 static const MoonlightProtocolV1TouchEdge TEST_TOUCH_EDGE = {
@@ -195,6 +252,24 @@ static void test_store_u32(uint8_t *output, uint32_t value) {
 }
 
 /**
+ * @brief Compares every semantic field in two keyboard edges.
+ *
+ * @param left First edge.
+ * @param right Second edge.
+ * @return True only when every field matches.
+ */
+static bool test_key_edges_equal(
+  const MoonlightProtocolV1KeyEdge *left,
+  const MoonlightProtocolV1KeyEdge *right
+) {
+  return left->input_sequence == right->input_sequence &&
+         left->usage_page == right->usage_page &&
+         left->usage == right->usage &&
+         left->pressed == right->pressed &&
+         left->modifiers == right->modifiers;
+}
+
+/**
  * @brief Compares every semantic field in two reliable edges.
  *
  * @param left First edge.
@@ -235,6 +310,299 @@ static bool test_touch_moves_equal(
          left->major == right->major &&
          left->minor == right->minor &&
          left->rotation_centidegrees == right->rotation_centidegrees;
+}
+
+/**
+ * @brief Exercises canonical keyboard bytes and reliable-subtype dispatch.
+ *
+ * @return True when encoding, decoding, and subtype inspection agree.
+ */
+static bool test_key_edge_golden(void) {
+  uint8_t encoded[MOONLIGHT_PROTOCOL_V1_KEY_EDGE_PAYLOAD_SIZE];
+  MoonlightProtocolV1KeyEdge decoded;
+  MoonlightProtocolV1ReliableInputSubtype subtype =
+    MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_TOUCH_EDGE;
+  size_t encoded_size = 0;
+
+  TEST_CHECK(
+    MOONLIGHT_PROTOCOL_V1_CAPABILITY_PHYSICAL_KEYBOARD ==
+    UINT64_C(0x100)
+  );
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_KEY_EDGE_BODY_SIZE == 8u);
+  TEST_CHECK(MOONLIGHT_PROTOCOL_V1_KEY_EDGE_PAYLOAD_SIZE == 38u);
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeKeyEdgePayload(
+      &TEST_KEY_EDGE,
+      encoded,
+      sizeof(encoded),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(encoded_size == sizeof(encoded));
+  TEST_CHECK(memcmp(encoded, TEST_KEY_EDGE_GOLDEN, sizeof(encoded)) == 0);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeReliableInputSubtype(
+      TEST_KEY_EDGE_GOLDEN,
+      sizeof(TEST_KEY_EDGE_GOLDEN),
+      &subtype
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(subtype == MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_KEY_EDGE);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeKeyEdgePayload(
+      TEST_KEY_EDGE_GOLDEN,
+      sizeof(TEST_KEY_EDGE_GOLDEN),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(test_key_edges_equal(&decoded, &TEST_KEY_EDGE));
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeReliableInputSubtype(
+      TEST_TOUCH_EDGE_GOLDEN,
+      sizeof(TEST_TOUCH_EDGE_GOLDEN),
+      &subtype
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_OK
+  );
+  TEST_CHECK(subtype == MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_TOUCH_EDGE);
+  return true;
+}
+
+/**
+ * @brief Exercises keyboard codec argument and semantic rejections.
+ *
+ * @return True when failures preserve every caller-owned output.
+ */
+static bool test_key_edge_rejections(void) {
+  uint8_t output[MOONLIGHT_PROTOCOL_V1_KEY_EDGE_PAYLOAD_SIZE];
+  uint8_t output_before[sizeof(output)];
+  uint8_t mutated[sizeof(TEST_KEY_EDGE_GOLDEN)];
+  MoonlightProtocolV1KeyEdge edge = TEST_KEY_EDGE;
+  MoonlightProtocolV1KeyEdge decoded;
+  MoonlightProtocolV1KeyEdge decoded_before;
+  MoonlightProtocolV1ReliableInputSubtype subtype =
+    MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_TOUCH_EDGE;
+  size_t encoded_size = 17;
+
+  memset(output, 0xa5, sizeof(output));
+  memcpy(output_before, output, sizeof(output));
+  memset(&decoded, 0x5a, sizeof(decoded));
+  decoded_before = decoded;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeKeyEdgePayload(
+      NULL,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeKeyEdgePayload(
+      &edge,
+      NULL,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeKeyEdgePayload(
+      &edge,
+      output,
+      sizeof(output),
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeKeyEdgePayload(
+      &edge,
+      output,
+      sizeof(output) - 1u,
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_BUFFER_TOO_SMALL
+  );
+  TEST_CHECK(encoded_size == 17u);
+  TEST_CHECK(memcmp(output, output_before, sizeof(output)) == 0);
+
+  edge.input_sequence = 0;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeKeyEdgePayload(
+      &edge,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  edge = TEST_KEY_EDGE;
+  edge.usage_page = 0;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeKeyEdgePayload(
+      &edge,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  edge = TEST_KEY_EDGE;
+  edge.usage = 0;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeKeyEdgePayload(
+      &edge,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  edge = TEST_KEY_EDGE;
+  edge.pressed = 2;
+  TEST_RESULT(
+    MoonlightProtocolV1EncodeKeyEdgePayload(
+      &edge,
+      output,
+      sizeof(output),
+      &encoded_size
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeKeyEdgePayload(
+      NULL,
+      sizeof(TEST_KEY_EDGE_GOLDEN),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeKeyEdgePayload(
+      TEST_KEY_EDGE_GOLDEN,
+      sizeof(TEST_KEY_EDGE_GOLDEN),
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeKeyEdgePayload(
+      TEST_KEY_EDGE_GOLDEN,
+      sizeof(TEST_KEY_EDGE_GOLDEN) + 1u,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeKeyEdgePayload(
+      TEST_KEY_EDGE_GOLDEN,
+      sizeof(TEST_KEY_EDGE_GOLDEN) - 1u,
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+
+  memcpy(mutated, TEST_KEY_EDGE_GOLDEN, sizeof(mutated));
+  test_store_u16(mutated + 20u, 0x0104);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeKeyEdgePayload(
+      mutated,
+      sizeof(mutated),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  memcpy(mutated, TEST_KEY_EDGE_GOLDEN, sizeof(mutated));
+  mutated[34] = 2;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeKeyEdgePayload(
+      mutated,
+      sizeof(mutated),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  memcpy(mutated, TEST_KEY_EDGE_GOLDEN, sizeof(mutated));
+  mutated[36] = 1;
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeKeyEdgePayload(
+      mutated,
+      sizeof(mutated),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_UNSUPPORTED
+  );
+  memcpy(mutated, TEST_KEY_EDGE_GOLDEN, sizeof(mutated));
+  test_store_u32(mutated + 8u, 0);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeKeyEdgePayload(
+      mutated,
+      sizeof(mutated),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  memcpy(mutated, TEST_KEY_EDGE_GOLDEN, sizeof(mutated));
+  test_store_u16(mutated + 30u, 0);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeKeyEdgePayload(
+      mutated,
+      sizeof(mutated),
+      &decoded
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(memcmp(&decoded, &decoded_before, sizeof(decoded)) == 0);
+
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeReliableInputSubtype(
+      NULL,
+      sizeof(TEST_KEY_EDGE_GOLDEN),
+      &subtype
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeReliableInputSubtype(
+      TEST_KEY_EDGE_GOLDEN,
+      sizeof(TEST_KEY_EDGE_GOLDEN),
+      NULL
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_INVALID_ARGUMENT
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeReliableInputSubtype(
+      TEST_KEY_EDGE_GOLDEN,
+      MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_PAYLOAD_MAX + 1u,
+      &subtype
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_LIMIT_EXCEEDED
+  );
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeReliableInputSubtype(
+      TEST_KEY_EDGE_GOLDEN,
+      1u,
+      &subtype
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  memcpy(mutated, TEST_KEY_EDGE_GOLDEN, sizeof(mutated));
+  test_store_u32(mutated + 8u, 0);
+  TEST_RESULT(
+    MoonlightProtocolV1DecodeReliableInputSubtype(
+      mutated,
+      sizeof(mutated),
+      &subtype
+    ),
+    MOONLIGHT_PROTOCOL_RESULT_MALFORMED
+  );
+  TEST_CHECK(subtype == MOONLIGHT_PROTOCOL_V1_RELIABLE_INPUT_TOUCH_EDGE);
+  return true;
 }
 
 /**
@@ -984,13 +1352,15 @@ static int run_test(const char *name, bool (*test)(void)) {
 }
 
 /**
- * @brief Runs all protocol version 1 touch input tests.
+ * @brief Runs all protocol version 1 typed input tests.
  *
  * @return Zero only when every test passes.
  */
 int main(void) {
   int failures = 0;
 
+  failures += run_test("key_edge_golden", test_key_edge_golden);
+  failures += run_test("key_edge_rejections", test_key_edge_rejections);
   failures += run_test("touch_goldens", test_touch_goldens);
   failures += run_test(
     "touch_edge_encode_rejections",
