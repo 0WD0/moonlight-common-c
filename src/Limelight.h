@@ -569,6 +569,12 @@ const char* LiGetStageName(int stage);
 // This function may only be called between LiStartConnection() and LiStopConnection().
 bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt, uint32_t* estimatedRttVariance);
 
+// Send a request to the server to execute the requested command ID.
+int LiSendExecServerCmd(uint8_t cmdId);
+
+// Send an empty payload to the server as a Wi-Fi sleep workaround.
+int LiSendEmptyPayload(void);
+
 // This function queues a relative mouse move event to be sent to the remote server.
 int LiSendMouseMoveEvent(short deltaX, short deltaY);
 

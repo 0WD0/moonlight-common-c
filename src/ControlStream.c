@@ -140,6 +140,7 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_SET_MOTION_EVENT 10
 #define IDX_SET_RGB_LED 11
 #define IDX_DS_ADAPTIVE_TRIGGERS 12
+#define IDX_EXEC_SERVER_CMD 13
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -157,6 +158,7 @@ static const short packetTypesGen3[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,
 };
 static const short packetTypesGen4[] = {
     0x0606, // Request IDR frame
@@ -171,6 +173,7 @@ static const short packetTypesGen4[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -185,6 +188,7 @@ static const short packetTypesGen5[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -199,6 +203,7 @@ static const short packetTypesGen7[] = {
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,
 };
 static const short packetTypesGen7Enc[] = {
     0x0302, // Request IDR frame
@@ -214,6 +219,7 @@ static const short packetTypesGen7Enc[] = {
     0x5501, // Set motion event (Sunshine protocol extension)
     0x5502, // Set RGB LED (Sunshine protocol extension)
     0x5503, // Set Adaptive Triggers (Sunshine protocol extension)
+    0x3000, // Execute server command (Apollo protocol extension)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -2083,4 +2089,27 @@ bool LiGetHdrMetadata(PSS_HDR_METADATA metadata) {
 
     *metadata = hdrMetadata;
     return true;
+}
+
+// Send a request to the server to execute the requested command ID.
+int LiSendExecServerCmd(uint8_t cmdId) {
+    uint8_t payload[4] = {cmdId, 0, 0, 0};
+    return sendMessageAndForget(packetTypes[IDX_EXEC_SERVER_CMD],
+                                 sizeof(payload),
+                                 payload,
+                                 CTRL_CHANNEL_SERVERCTL,
+                                 ENET_PACKET_FLAG_RELIABLE,
+                                 false);
+}
+
+// Send an empty payload to the server. This is used as a keepalive workaround
+// for clients that may otherwise enter a Wi-Fi sleep state.
+int LiSendEmptyPayload(void) {
+    uint8_t payload[4] = {0xAA, 0x55, 0xAA, 0x55};
+    return sendMessageAndForget(0x00,
+                                 sizeof(payload),
+                                 payload,
+                                 CTRL_CHANNEL_SERVERCTL,
+                                 ENET_PACKET_FLAG_RELIABLE,
+                                 false);
 }

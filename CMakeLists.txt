@@ -7,6 +7,11 @@ set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 option(USE_MBEDTLS "Use MbedTLS instead of OpenSSL" OFF)
 option(CODE_ANALYSIS "Run code analysis during compilation" OFF)
+option(
+  MOONLIGHT_COMMON_BUILD_CRYPTO_TESTS
+  "Build the moonlight-common-c platform crypto tests"
+  OFF
+)
 
 add_subdirectory(src/protocol)
 
@@ -119,3 +124,8 @@ target_include_directories(moonlight-common-c SYSTEM PRIVATE
 )
 
 target_compile_definitions(moonlight-common-c PRIVATE HAS_SOCKLEN_T)
+
+if(MOONLIGHT_COMMON_BUILD_CRYPTO_TESTS)
+  enable_testing()
+  add_subdirectory(tests/crypto)
+endif()

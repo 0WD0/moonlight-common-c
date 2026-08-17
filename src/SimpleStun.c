@@ -83,7 +83,11 @@ int LiFindExternalAddressIP4(const char* stunServer, unsigned short stunPort, un
     reqMsg.messageType = htons(STUN_MESSAGE_BINDING_REQUEST);
     reqMsg.messageLength = 0;
     reqMsg.magicCookie = htonl(STUN_MESSAGE_COOKIE);
-    PltGenerateRandomData(reqMsg.transactionId, sizeof(reqMsg.transactionId));
+    if (!PltGenerateRandomData(reqMsg.transactionId, sizeof(reqMsg.transactionId))) {
+        Limelog("Failed to generate a STUN transaction ID\n");
+        err = -1;
+        goto Exit;
+    }
 
     bytesRead = SOCKET_ERROR;
     for (i = 0; i < STUN_RECV_TIMEOUT_SEC * 1000 / UDP_RECV_POLL_TIMEOUT_MS && bytesRead <= 0; i++) {
